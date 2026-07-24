@@ -1,0 +1,11 @@
+title: qingzhu521's Blog
+description: 技术笔记与思考
+theme: minima
+plugins:
+  - jekyll-feed
+
+minima:
+  skin: dark
+
+markdown: kramdown
+permalink: /:year/:month/:day/:title/
