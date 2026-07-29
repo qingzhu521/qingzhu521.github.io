@@ -126,8 +126,8 @@ tags: [flink, timely-dataflow, 并行计算, 递归sql]
 
 同样的数据，同样的计算量，快慢差了两倍多——差距不在机器，在图的形状。这里有两个名词值得记住：
 
-- **工作量（work）**：全部加法的次数，7 次。它决定你要付多少电费。
-- **关键路径（critical path，也叫 span）**：图里最长的那条依赖链。它决定你最少要等多久——哪怕有无限多台机器，也快不过这条链。理论说法是 Brent 定理：p 台机器的执行时间 `T(p) ≤ T₁/p + T∞`，机器趋于无限时，剩下的只有 T∞，也就是关键路径的长度。
+- **工作量（work）**：全部加法的次数，7 次。它等于只用一台机器串行跑完所需的时间（T₁）——无论投入多少机器，这笔总账不会变少，只是被分摊到同一时刻并行支付。
+- **关键路径（critical path，也叫 span）**：图里最长的那条依赖链。它等于有无限多机器时的最短完成时间（T∞）——机器加得再多，也快不过这条链。理论说法是 Brent 定理：p 台机器的执行时间 `T(p) ≤ T₁/p + T∞`，机器趋于无限时，剩下的只有 T∞，也就是关键路径的长度。
 
 一句话：**机器决定图的宽度，依赖决定图的长度；并行时间的下限，写在长度里。**
 
@@ -310,6 +310,55 @@ sum8(a, b, c, d, e, f, g, h)
 
 一种办法是预先画出足够多的层数，例如固定执行十轮。这样虽然仍能得到部分场景中的正确结果，却同时带来两个问题：链较短时会产生多余计算，链超过十层时又会遗漏结果。静态展开只是把未知的循环次数替换成了人为设定的上限，并没有真正表达循环。
 
+<figure class="fig-card">
+<svg class="fig-svg" viewBox="0 0 720 360" role="img" aria-label="固定四轮的静态展开图：数据两轮收敛时后两轮空转，数据六轮才收敛时答案落在图外">
+<defs>
+<marker id="s31-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#57534e"/></marker>
+<marker id="s31-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#b91c1c"/></marker>
+</defs>
+<text x="24" y="30" class="t-title">同一张静态图，遇到两种不同的数据</text>
+<g class="t-sub">
+<text x="24" y="80">静态展开（固定 4 轮）</text>
+<text x="24" y="170">数据 A：第 2 轮收敛</text>
+<text x="24" y="260">数据 B：第 6 轮才收敛</text>
+</g>
+<g stroke="#57534e" stroke-width="1.5" fill="none">
+<line x1="266" y1="75" x2="280" y2="75" marker-end="url(#s31-ink)"/><line x1="378" y1="75" x2="392" y2="75" marker-end="url(#s31-ink)"/><line x1="490" y1="75" x2="504" y2="75" marker-end="url(#s31-ink)"/>
+</g>
+<g>
+<rect x="170" y="56" width="96" height="38" rx="10" fill="#ffffff" stroke="#57534e" stroke-width="1.4"/><text x="218" y="80" text-anchor="middle" class="t-label">第 1 轮</text>
+<rect x="282" y="56" width="96" height="38" rx="10" fill="#ffffff" stroke="#57534e" stroke-width="1.4"/><text x="330" y="80" text-anchor="middle" class="t-label">第 2 轮</text>
+<rect x="394" y="56" width="96" height="38" rx="10" fill="#ffffff" stroke="#57534e" stroke-width="1.4"/><text x="442" y="80" text-anchor="middle" class="t-label">第 3 轮</text>
+<rect x="506" y="56" width="96" height="38" rx="10" fill="#ffffff" stroke="#57534e" stroke-width="1.4"/><text x="554" y="80" text-anchor="middle" class="t-label">第 4 轮</text>
+</g>
+<g stroke="#0f766e" stroke-width="1.5" fill="none">
+<line x1="266" y1="165" x2="280" y2="165" marker-end="url(#s31-ink)"/><line x1="378" y1="165" x2="392" y2="165" marker-end="url(#s31-ink)"/><line x1="490" y1="165" x2="504" y2="165" marker-end="url(#s31-ink)"/>
+</g>
+<g>
+<rect x="170" y="146" width="96" height="38" rx="10" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="218" y="170" text-anchor="middle" class="t-label">第 1 轮</text>
+<rect x="282" y="146" width="96" height="38" rx="10" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="330" y="170" text-anchor="middle" class="t-label">第 2 轮 ✓</text>
+<rect x="394" y="146" width="96" height="38" rx="10" fill="#f6f1e7" stroke="#a8a29e" stroke-width="1.4" stroke-dasharray="5 4"/><text x="442" y="170" text-anchor="middle" class="t-sub">空转</text>
+<rect x="506" y="146" width="96" height="38" rx="10" fill="#f6f1e7" stroke="#a8a29e" stroke-width="1.4" stroke-dasharray="5 4"/><text x="554" y="170" text-anchor="middle" class="t-sub">空转</text>
+</g>
+<text x="386" y="212" text-anchor="middle" class="t-label" fill="#9a3412" font-weight="600">太长：后两轮白算 —— 浪费，但结果正确</text>
+<g stroke="#0f766e" stroke-width="1.5" fill="none">
+<line x1="266" y1="255" x2="280" y2="255" marker-end="url(#s31-ink)"/><line x1="378" y1="255" x2="392" y2="255" marker-end="url(#s31-ink)"/><line x1="490" y1="255" x2="504" y2="255" marker-end="url(#s31-ink)"/>
+</g>
+<g>
+<rect x="170" y="236" width="96" height="38" rx="10" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="218" y="260" text-anchor="middle" class="t-label">第 1 轮</text>
+<rect x="282" y="236" width="96" height="38" rx="10" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="330" y="260" text-anchor="middle" class="t-label">第 2 轮</text>
+<rect x="394" y="236" width="96" height="38" rx="10" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="442" y="260" text-anchor="middle" class="t-label">第 3 轮</text>
+<rect x="506" y="236" width="96" height="38" rx="10" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="554" y="260" text-anchor="middle" class="t-label">第 4 轮</text>
+</g>
+<line x1="602" y1="255" x2="628" y2="255" stroke="#b91c1c" stroke-width="1.6" stroke-dasharray="5 4" fill="none" marker-end="url(#s31-red)"/>
+<line x1="618" y1="228" x2="618" y2="292" stroke="#b91c1c" stroke-width="2" stroke-dasharray="6 5"/>
+<text x="618" y="308" text-anchor="middle" class="t-micro" fill="#b91c1c">图的终点</text>
+<rect x="632" y="240" width="76" height="30" rx="8" fill="#fee2e2" stroke="#b91c1c" stroke-width="1.4" stroke-dasharray="5 4"/><text x="670" y="259" text-anchor="middle" class="t-label" fill="#b91c1c">答案？</text>
+<text x="386" y="330" text-anchor="middle" class="t-label" fill="#b91c1c" font-weight="600">太短：答案在第 6 轮，图在第 4 轮就结束了 —— 根本算不出来</text>
+</svg>
+<figcaption class="fig-caption">静态展开用人为的上限替代真实的迭代次数。链短时空转几轮，只是浪费；链长时答案落在图外，结果就是错的。两种失败不对称——真正不可接受的是太短。</figcaption>
+</figure>
+
 更直接的办法是加入一条回边，把本轮的新结果重新送回连接操作。此时，算子结构本身可以保持不变：同一个 join 被重复使用，不必为每一轮复制一套算子。但是图中出现回边以后，仅靠原来的依赖关系已经无法决定执行顺序。系统还必须知道一条记录属于哪一轮，以及未来是否还会有新的记录进入这一轮。
 
 因此，循环需要补充两项机制：
@@ -326,3 +375,314 @@ sum8(a, b, c, d, e, f, g, h)
 因此，每一轮都要区分“已经见过的公司”和“本轮第一次发现的公司”。只有后者才需要进入下一轮。前面公式中的 `distinct` 和集合差并非单纯的性能优化，它们同时给出了集合型递归的终止条件：当一轮计算不再产生新公司时，已知集合达到不动点，循环结束。
 
 这一点也说明了运行时展开的实质。系统并不是随意创建一张结构不断变化的图，而是在重复执行同一段计算结构；真正动态变化的是每轮输入的数据，以及由这些数据决定的迭代次数。
+
+## 4. 表达循环的两条路线
+
+上一节的结论是：循环需要两样东西——区分轮次的逻辑时间，和判断进度的机制。这两样东西可以放在两个地方：记在系统里，或者记在数据里。这个选择把系统分成了两类。
+
+### 4.1 同步轮次：把时间记在系统里
+
+最直观的办法是让所有机器对齐"现在"。计算按轮次推进：第 k 轮里，所有节点并行处理第 k−1 轮的输出；全部完成后，一道全局屏障把系统锁齐，第 k+1 轮才能开始。轮次编号是系统的全局状态，数据本身不需要携带时间——所有人都在同一轮，时间是隐式的。
+
+这条路线有很长的谱系。MPI 程序里，程序员手工插入屏障和集合通信（`MPI_Barrier`、`MPI_Allreduce`），同步点是代码的一部分。Pregel 把它自动化为 superstep：每个节点在每轮接收上轮消息、更新本地状态、发出新消息，框架负责轮末对齐。Flink 的 DataSet API 提供 bulk / delta iteration，图计算库 Gelly 在其上实现了同样的模型。
+
+用上一节的持股查询推演。本轮待展开的公司记为 **Δ 集合**——有些材料叫它 frontier，但这个词在 4.2 有一个完全不同的精确含义，这里避免混用：
+
+| superstep | Δ 集合 ⋈ holds | 轮末已知集合 | 本轮白做的功 |
+|---|---|---|---|
+| 0 | {P} → 甲, 丙 | {P, 甲, 丙} | — |
+| 1 | {甲, 丙} → 乙, 丙（重复）, 丁 | +乙, +丁 | 甲→丙 重复发现，作废 |
+| 2 | {乙, 丁} → 丙（重复）, 戊 | +戊 | 乙→丙 又作废一次 |
+| 3 | {戊} → 甲（沿环回来，已知） | 不变 | 空转一轮，只为确认收敛 |
+
+同步轮次给出一个干净的语义：第 k 轮结束时，已知集合恰好是所有不超过 k 跳可达的公司——每一轮末，系统处在一个全局一致的状态。这个性质有实际价值：**收敛判据可以是任意全局聚合**。例如 PageRank 的"本轮最大变化小于 ε"，在同步模型里只是一次全局归约。
+
+代价同样写在表里：重复发现的消息（甲→丙、乙→丙、戊→甲）各自消耗了一轮的部分算力才被清算；确认收敛需要额外空转一轮；每一轮里，最慢的分区决定全系统的进度。
+
+<figure class="fig-card">
+<svg class="fig-svg" viewBox="0 0 720 260" role="img" aria-label="同步轮次的泳道图：每轮末端有屏障，最慢的分区拖住其他分区等待">
+<g class="t-sub">
+<text x="8" y="76">worker 1</text><text x="8" y="116">worker 2</text><text x="8" y="156">worker 3</text><text x="8" y="196">worker 4</text>
+</g>
+<g text-anchor="middle">
+<text x="190" y="32" class="t-title">superstep k</text>
+<text x="450" y="32" class="t-title">superstep k+1</text>
+</g>
+<g>
+<rect x="70" y="56" width="180" height="24" rx="6" fill="#ffedd5" stroke="#9a3412" stroke-width="1.4"/>
+<rect x="70" y="96" width="180" height="24" rx="6" fill="#ffedd5" stroke="#9a3412" stroke-width="1.4"/>
+<rect x="70" y="136" width="252" height="24" rx="6" fill="#ffedd5" stroke="#9a3412" stroke-width="1.4"/>
+<rect x="70" y="176" width="180" height="24" rx="6" fill="#ffedd5" stroke="#9a3412" stroke-width="1.4"/>
+<rect x="250" y="56" width="72" height="24" rx="6" fill="#f6f1e7" stroke="#e8e0d4"/><text x="286" y="72" text-anchor="middle" class="t-micro">等待</text>
+<rect x="250" y="96" width="72" height="24" rx="6" fill="#f6f1e7" stroke="#e8e0d4"/><text x="286" y="112" text-anchor="middle" class="t-micro">等待</text>
+<rect x="250" y="176" width="72" height="24" rx="6" fill="#f6f1e7" stroke="#e8e0d4"/><text x="286" y="192" text-anchor="middle" class="t-micro">等待</text>
+<rect x="352" y="56" width="170" height="24" rx="6" fill="#ffedd5" stroke="#9a3412" stroke-width="1.4" opacity="0.55"/>
+<rect x="352" y="96" width="170" height="24" rx="6" fill="#ffedd5" stroke="#9a3412" stroke-width="1.4" opacity="0.55"/>
+<rect x="352" y="136" width="170" height="24" rx="6" fill="#ffedd5" stroke="#9a3412" stroke-width="1.4" opacity="0.55"/>
+<rect x="352" y="176" width="170" height="24" rx="6" fill="#ffedd5" stroke="#9a3412" stroke-width="1.4" opacity="0.55"/>
+</g>
+<g stroke="#b91c1c" stroke-width="2.5">
+<line x1="334" y1="44" x2="334" y2="212"/><line x1="560" y1="44" x2="560" y2="212"/>
+</g>
+<g class="t-micro" fill="#b91c1c" text-anchor="middle">
+<text x="334" y="228">屏障：等最慢的分区</text><text x="560" y="228">屏障</text>
+</g>
+<text x="196" y="152" text-anchor="middle" class="t-micro" fill="#9a3412" font-weight="600">straggler</text>
+<text x="610" y="128" class="t-sub">下一轮整体开始</text>
+</svg>
+<figcaption class="fig-caption">同步轮次：每一轮末端有一道屏障，所有分区到齐后下一轮才能开始。worker 3 是本轮的 straggler，其余三个分区只能空等。</figcaption>
+</figure>
+
+关于实现现状需要说明一句：Flink 的同步迭代能力在 DataSet API 和 Gelly 中，而 DataSet API 正在被 DataStream 的批处理模式取代；`DataStream.iterate()` 并不提供 superstep 语义——没有屏障，也没有内建的终止检测——目前已被废弃。本节讨论的代表实现是 MPI、Pregel、Giraph、Spark GraphX 和 Gelly，而不是一个开箱即用的在线服务。
+
+### 4.2 逻辑时间：把时间记在数据里
+
+Timely Dataflow 做了相反的选择：不设全局屏障，让每条消息自己携带逻辑时间戳。这个决定的后果比看上去深刻——它改变了"进度"这个词的含义。我们从时间戳的结构说起。
+
+#### 4.2.1 嵌套时间戳：进入循环，就加一个坐标
+
+先用一个坐标：给每条消息标上它属于第几轮，够吗？对单个循环够了。但真实计算里循环外面还有循环：输入一批接一批到来（批与批之间是 epoch），每一批内部可能要做迭代（iteration），迭代里面还可能再嵌套迭代。一个整数分不清"第 2 批的第 3 轮"和"第 3 批的第 2 轮"。
+
+Timely 的办法是：**时间戳不是一个数，而是一个坐标序列**。进入一层循环作用域，就在末尾追加一个坐标；离开这层作用域，就把它弹掉。第 2 批数据的循环里，第 3 轮的消息时间戳是 `(2, 3)`；如果循环里再套一层循环，内层第 1 轮就是 `(2, 3, 1)`。
+
+这个结构和函数调用栈完全同构：调用一层函数，压一帧；返回，弹一帧。时间戳的长度就是嵌套深度，每个坐标是那一层的局部计数器。
+
+写法上注意，坐标是**扁平的序列**，不是嵌套的二元组：顶层 scope 里时间戳就是 `3`；进入 iterate 后变成 `(3, 0)`；再嵌套一层循环就是 `(3, 0, 0)`。每进入一层作用域，在末尾追加一个坐标；离开时弹出。由此得到一个重要事实：**iterate 之外的算子看不到 iteration 坐标**——无论下游还接着多少算子，它们收到的时间戳只有 `3`，轮次被完整封装在作用域内部。
+
+回边在这个结构里扮演什么角色？**消息每绕回边一圈，最内层坐标加一**——`(2, 3)` 绕一圈变成 `(2, 4)`。这条规则有一个重要推论：消息沿环前进时，时间必然严格增大，不存在"时间在环上原地打转"的消息。frontier 因此在环上单调推进，循环的终止有了数学保证。
+
+<figure class="fig-card">
+<svg class="fig-svg" viewBox="0 0 760 560" role="img" aria-label="上半：输入在顶层 scope 中时间戳为 t=3，进入 iterate scope 后压入 iteration 坐标，内部按 (3,0) 到 (3,3) 分阶段并标出真实数据，离开时弹出坐标，下游算子只见 t=3；下半：物理时间轴上消息按到达顺序流动，没有阶段边界">
+<defs>
+<marker id="ph-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#0f766e"/></marker>
+<marker id="ph-gray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#57534e"/></marker>
+</defs>
+<text x="30" y="28" class="t-title">逻辑视图：分阶段只发生在 iterate 内部（每层写出真实数据）</text>
+<rect x="60" y="44" width="118" height="30" rx="9" fill="#ffffff" stroke="#57534e" stroke-width="1.4"/><text x="119" y="63" text-anchor="middle" class="t-label">输入 {P} @ t=3</text>
+<text x="190" y="63" class="t-sub">顶层 scope：时间戳就是 3</text>
+<line x1="119" y1="74" x2="119" y2="98" stroke="#0f766e" stroke-width="2" marker-end="url(#ph-teal)"/>
+<text x="130" y="90" class="t-micro" fill="#0f766e">压入坐标：3 → (3, 0)</text>
+<rect x="40" y="100" width="680" height="172" rx="14" fill="#f0fdfa" stroke="#0f766e" stroke-width="1.2" stroke-dasharray="6 5"/>
+<text x="54" y="122" class="t-sub" fill="#0f766e" font-weight="600">iterate scope（iteration 坐标只存在于这个框内）</text>
+<g>
+<rect x="60" y="132" width="150" height="122" rx="10" fill="#ffffff" stroke="#0f766e" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="72" y="152" class="t-micro" fill="#0f766e" font-weight="700">阶段 (3,0)</text>
+<text x="72" y="176" class="t-label">Δ = {P}</text>
+<text x="72" y="198" class="t-sub">⋈ holds</text>
+<text x="72" y="220" class="t-label">→ 甲 @(3,1)</text>
+<text x="72" y="241" class="t-label">→ 丙 @(3,1)</text>
+</g>
+<g>
+<rect x="220" y="132" width="150" height="122" rx="10" fill="#ffffff" stroke="#0f766e" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="232" y="152" class="t-micro" fill="#0f766e" font-weight="700">阶段 (3,1)</text>
+<text x="232" y="176" class="t-label">Δ = {甲, 丙}</text>
+<text x="232" y="198" class="t-sub">⋈ holds</text>
+<text x="232" y="220" class="t-label">→ 乙、丁 @(3,2)</text>
+<text x="232" y="241" class="t-label" fill="#b91c1c">✗ 丙 @(3,2) 已知</text>
+</g>
+<g>
+<rect x="380" y="132" width="150" height="122" rx="10" fill="#ffffff" stroke="#0f766e" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="392" y="152" class="t-micro" fill="#0f766e" font-weight="700">阶段 (3,2)</text>
+<text x="392" y="176" class="t-label">Δ = {乙, 丁}</text>
+<text x="392" y="198" class="t-sub">⋈ holds</text>
+<text x="392" y="220" class="t-label">→ 戊 @(3,3)</text>
+<text x="392" y="241" class="t-label" fill="#b91c1c">✗ 丙 @(3,3) 已知</text>
+</g>
+<g>
+<rect x="540" y="132" width="150" height="122" rx="10" fill="#ffffff" stroke="#0f766e" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="552" y="152" class="t-micro" fill="#0f766e" font-weight="700">阶段 (3,3)</text>
+<text x="552" y="176" class="t-label">Δ = {戊}</text>
+<text x="552" y="198" class="t-sub">⋈ holds</text>
+<text x="552" y="220" class="t-label" fill="#b91c1c">✗ 甲 @(3,4) 已知</text>
+<text x="552" y="241" class="t-label">∅ 无新增，停</text>
+</g>
+<g stroke="#0f766e" stroke-width="1.8" stroke-dasharray="5 4" fill="none">
+<line x1="212" y1="193" x2="218" y2="193" marker-end="url(#ph-teal)"/>
+<line x1="372" y1="193" x2="378" y2="193" marker-end="url(#ph-teal)"/>
+<line x1="532" y1="193" x2="538" y2="193" marker-end="url(#ph-teal)"/>
+</g>
+<line x1="615" y1="254" x2="615" y2="284" stroke="#57534e" stroke-width="2" marker-end="url(#ph-gray)"/>
+<text x="450" y="300" text-anchor="middle" class="t-micro">弹出坐标：(3, k) → 3</text>
+<rect x="545" y="286" width="140" height="30" rx="9" fill="#ffffff" stroke="#57534e" stroke-width="1.4"/><text x="615" y="305" text-anchor="middle" class="t-label">输出 @ t=3</text>
+<text x="615" y="336" text-anchor="middle" class="t-sub">下游算子只见 epoch = 3，iteration 坐标不泄漏</text>
+<line x1="30" y1="356" x2="730" y2="356" stroke="#e8e0d4"/>
+<text x="30" y="382" class="t-title">物理视图：一条时间轴，没有阶段边界</text>
+<g stroke="#57534e" stroke-width="1.2" fill="none">
+<line x1="92" y1="452" x2="92" y2="470"/><line x1="158" y1="452" x2="158" y2="470"/><line x1="224" y1="452" x2="224" y2="470"/>
+<line x1="290" y1="452" x2="290" y2="470"/><line x1="356" y1="452" x2="356" y2="470"/><line x1="422" y1="452" x2="422" y2="470"/>
+<line x1="488" y1="452" x2="488" y2="470"/><line x1="554" y1="452" x2="554" y2="470"/><line x1="620" y1="452" x2="620" y2="470"/>
+<line x1="60" y1="470" x2="736" y2="470" marker-end="url(#ph-gray)"/>
+</g>
+<g>
+<rect x="64" y="420" width="56" height="32" rx="8" fill="#ffffff" stroke="#57534e" stroke-width="1.3"/><text x="92" y="434" text-anchor="middle" class="t-label">P</text><text x="92" y="447" text-anchor="middle" class="t-micro">@(3,0)</text>
+<rect x="130" y="420" width="56" height="32" rx="8" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.3"/><text x="158" y="434" text-anchor="middle" class="t-label">甲</text><text x="158" y="447" text-anchor="middle" class="t-micro">@(3,1)</text>
+<rect x="196" y="420" width="56" height="32" rx="8" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.3"/><text x="224" y="434" text-anchor="middle" class="t-label">丙</text><text x="224" y="447" text-anchor="middle" class="t-micro">@(3,1)</text>
+<rect x="262" y="420" width="56" height="32" rx="8" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.3"/><text x="290" y="434" text-anchor="middle" class="t-label">乙</text><text x="290" y="447" text-anchor="middle" class="t-micro">@(3,2)</text>
+<rect x="328" y="420" width="56" height="32" rx="8" fill="#fee2e2" stroke="#b91c1c" stroke-width="1.3" stroke-dasharray="4 3"/><text x="356" y="434" text-anchor="middle" class="t-label" fill="#b91c1c">丙 ✗</text><text x="356" y="447" text-anchor="middle" class="t-micro">@(3,2)</text>
+<rect x="394" y="420" width="56" height="32" rx="8" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.3"/><text x="422" y="434" text-anchor="middle" class="t-label">丁</text><text x="422" y="447" text-anchor="middle" class="t-micro">@(3,2)</text>
+<rect x="460" y="420" width="56" height="32" rx="8" fill="#0f766e"/><text x="488" y="434" text-anchor="middle" class="t-white">戊</text><text x="488" y="447" text-anchor="middle" font-size="10" fill="#ccfbf1">@(3,3)</text>
+<rect x="526" y="420" width="56" height="32" rx="8" fill="#fee2e2" stroke="#b91c1c" stroke-width="1.3" stroke-dasharray="4 3"/><text x="554" y="434" text-anchor="middle" class="t-label" fill="#b91c1c">丙 ✗</text><text x="554" y="447" text-anchor="middle" class="t-micro">@(3,3)</text>
+<rect x="592" y="420" width="56" height="32" rx="8" fill="#fee2e2" stroke="#b91c1c" stroke-width="1.3" stroke-dasharray="4 3"/><text x="620" y="434" text-anchor="middle" class="t-label" fill="#b91c1c">甲 ✗</text><text x="620" y="447" text-anchor="middle" class="t-micro">@(3,4)</text>
+</g>
+<line x1="668" y1="412" x2="668" y2="470" stroke="#6d28d9" stroke-width="2" stroke-dasharray="6 5"/>
+<text x="668" y="402" text-anchor="middle" class="t-micro" fill="#6d28d9" font-weight="700">frontier → ∞</text>
+<path d="M 488 454 C 480 474, 468 484, 448 492" stroke="#0f766e" stroke-width="1.6" stroke-dasharray="4 3" fill="none" marker-end="url(#ph-teal)"/>
+<text x="430" y="508" text-anchor="middle" class="t-sub">戊@(3,3) 在 乙→丙（同属第 (3,2) 轮的展开）到来之前就开始流动</text>
+<text x="430" y="528" text-anchor="middle" class="t-sub">同步模型里这是被屏障禁止的；这里只有消息先后，没有阶段</text>
+</svg>
+<figcaption class="fig-caption">上半是逻辑视图：时间戳的分层只存在于 iterate scope 内部——输入在顶层 scope 是 t=3，进入时压入坐标变成 (3,0)，内部按 (3,0)…(3,3) 分阶段（每层标出真实数据），离开时弹出坐标，下游算子只见 t=3。下半是物理视图：同一批消息按物理时间流动，(3,3) 的戊在 (3,2) 阶段的最后一条消息之前就开始传播。逻辑分层是语义，物理不分层是执行。</figcaption>
+</figure>
+
+#### 4.2.2 偏序：允许"不可比"的时间点
+
+两个时间戳怎么比大小？规则是逐坐标比较，**全部坐标都不落后才算更小**：`(1, 3) ≤ (2, 4)`，因为 1≤2 且 3≤4。那 `(1, 3)` 和 `(2, 1)` 呢？第 1 批的第 3 轮，第 2 批的第 1 轮——第一个坐标落后，第二个坐标超前，**不可比**。
+
+"不可比"不是缺陷，而是整个设计的关键。如果强迫所有时间点排出全局先后（例如改用字典序），系统就必须在批与批之间建立不必要的等待：第 2 批的第 1 轮"排在"第 1 批的第 3 轮后面，就得等它。偏序允许系统说"这两个时间没有先后"——它们的消息并行流动，谁也不等谁。同步轮次里"所有人等齐再走"的约束，被精确地缩小到了真正有依赖的地方。
+
+frontier 就建立在偏序上。它不是一个时间点，而是**一组两两不可比的时间点**，含义是：未来消息的时间戳只会大于等于 frontier 中的某一个，绝不可能更小。把两个坐标画成网格，frontier 是一条向右下推进的阶梯线：
+
+<figure class="fig-card">
+<svg class="fig-svg" viewBox="0 0 720 280" role="img" aria-label="epoch 与 iteration 组成的网格：frontier 是一条阶梯形下界，左下方已封闭，右上方还可能到来，(1,3) 与 (2,1) 不可比">
+<g>
+<rect x="100" y="95" width="60" height="135" fill="#ede9fe" opacity="0.55"/>
+<rect x="100" y="185" width="120" height="45" fill="#ede9fe" opacity="0.55"/>
+<rect x="100" y="222" width="240" height="8" fill="#ede9fe" opacity="0.55"/>
+</g>
+<g fill="#d6d3d1">
+<circle cx="100" cy="230" r="2.5"/><circle cx="160" cy="230" r="2.5"/><circle cx="220" cy="230" r="2.5"/><circle cx="280" cy="230" r="2.5"/><circle cx="340" cy="230" r="2.5"/>
+<circle cx="100" cy="185" r="2.5"/><circle cx="160" cy="185" r="2.5"/><circle cx="220" cy="185" r="2.5"/><circle cx="280" cy="185" r="2.5"/><circle cx="340" cy="185" r="2.5"/>
+<circle cx="100" cy="140" r="2.5"/><circle cx="160" cy="140" r="2.5"/><circle cx="220" cy="140" r="2.5"/><circle cx="280" cy="140" r="2.5"/><circle cx="340" cy="140" r="2.5"/>
+<circle cx="100" cy="95" r="2.5"/><circle cx="160" cy="95" r="2.5"/><circle cx="220" cy="95" r="2.5"/><circle cx="280" cy="95" r="2.5"/><circle cx="340" cy="95" r="2.5"/>
+<circle cx="100" cy="50" r="2.5"/><circle cx="160" cy="50" r="2.5"/><circle cx="220" cy="50" r="2.5"/><circle cx="280" cy="50" r="2.5"/><circle cx="340" cy="50" r="2.5"/>
+</g>
+<g stroke="#57534e" stroke-width="1.2" fill="none">
+<line x1="92" y1="230" x2="364" y2="230"/><line x1="100" y1="238" x2="100" y2="42"/>
+</g>
+<text x="372" y="234" class="t-sub">epoch →</text>
+<text x="58" y="52" class="t-sub">iteration ↑</text>
+<path d="M 100 95 L 160 95 L 160 185 L 220 185 L 220 230 L 340 230" stroke="#6d28d9" stroke-width="2.2" stroke-dasharray="7 5" fill="none"/>
+<g fill="#6d28d9">
+<circle cx="160" cy="95" r="5"/><circle cx="220" cy="185" r="5"/><circle cx="340" cy="230" r="5"/>
+</g>
+<g class="t-micro" fill="#6d28d9" font-weight="700">
+<text x="172" y="90">(1, 3)</text><text x="232" y="180">(2, 1)</text><text x="318" y="214">(4, 0)</text>
+</g>
+<g>
+<text x="430" y="60" class="t-title">怎么读这张图</text>
+<rect x="430" y="78" width="14" height="14" fill="#ede9fe" stroke="#6d28d9" stroke-width="0.8"/><text x="452" y="90" class="t-sub">左下阴影：已封闭，可放心输出、回收状态</text>
+<line x1="430" y1="116" x2="444" y2="116" stroke="#6d28d9" stroke-width="2.2" stroke-dasharray="4 3"/><text x="452" y="120" class="t-sub">frontier：一组不可比的时间点（阶梯线）</text>
+<text x="452" y="150" class="t-sub">右上方：消息还可能到来</text>
+<text x="452" y="180" class="t-sub">(1, 3) 与 (2, 1)：不可比，互不等待</text>
+<text x="452" y="210" class="t-sub">算子只需盯住阶梯线，无需全局视图</text>
+</g>
+</svg>
+<figcaption class="fig-caption">frontier 是偏序上的一条阶梯形下界：左下方封闭、右上方待定。两个 frontier 点 (1,3) 与 (2,1) 不可比——它们的消息可以并行流动，这正是轮次重叠的几何含义。</figcaption>
+</figure>
+
+阶梯左下方的区域已经"封闭"：时间戳落在那里的消息不可能再来，算子可以放心输出这些轮次的结果、回收这些轮次的状态。注意 frontier 说的是"不会再有"，而不是"已经算完"——算子不需要知道全局发生了什么，只要盯住这条下界线，就能独立做出安全的决定。
+
+这套机制的适用范围也值得记住：Naiad 对时间戳只有一个最低要求——**构成偏序，并且沿回边严格递增**。任何满足这两条的时间体系，都能套用同一套进度追踪协议。
+
+#### 4.2.3 iterate 算子：把回边封装成一次函数调用
+
+有了嵌套时间戳，"循环"就可以从一种图结构变成一个普通算子。Differential Dataflow 的 `iterate` 正是这样做的。用它写 §3 的股权穿透查询：
+
+```rust
+// holds: (股东, 被持股公司) 静态表；start: 起始集合 {P}
+let reach = start.iterate(|known| {
+    known.join(&holds)           // 已知 ⋈ 持股表
+         .map(|(_, owned)| owned)
+         .concat(&known)         // 并入此前发现的全部公司
+         .distinct()             // 去重：只保留第一次出现的
+});
+```
+
+这段代码里看不到回边、时间戳和轮次，但它们都在算子内部原样存在：
+
+1. 进入 `iterate` 时，输入消息的时间戳被压入 iteration 坐标，初值为 0；
+2. 每一轮，循环体的输出沿回边送回输入，iteration 加一；
+3. `distinct` 保证集合在有限轮后不再变化——到达不动点；
+4. frontier 越过所有已产生的 iteration 时，算子确认不会再有新结果，弹出坐标，把整个循环的结果作为同一 epoch 上的普通输出交给下游。
+
+对外部世界，整个 `iterate` 就是一个普通的映射算子：输入是某个 epoch 上的一批起始公司，输出是同一 epoch 上的穿透结果。**轮次被完整地封装在算子内部**——这是嵌套时间戳的回报：循环不再是图的特殊形状，而是一次可以组合的函数调用。§2 说计算图与函数表达式同构，到这里，递归函数也被收编了进来。
+
+#### 4.2.4 同一条查询，按逻辑时间推演
+
+回到 §3 的持股链，看 `iterate` 内部实际发生什么（下面是一种可能的交错顺序；异步执行中顺序本身不唯一）：
+
+| 事件 | 消息（`@n` = 第 n 轮） | 结果 |
+|---|---|---|
+| 1 | P→甲@1, P→丙@1 | 甲、丙加入已知集合 |
+| 2 | 甲→乙@2 | 乙加入，立即生效，不等任何人 |
+| 3 | 甲→丙@2（重复） | 丙已知，去重算子就地吸收 |
+| 4 | 丙→丁@2 | 丁加入，立刻继续传播 |
+| 5 | 丁→戊@3 | 戊加入 |
+| 6 | 乙→丙@3（重复） | 又一条重复消息，同样就地吸收 |
+| 7 | 戊→甲@4（沿环回来） | 甲已知，吸收；不产生新的反馈数据 |
+| 8 | 各算子 frontier 越过所有轮次 | 判定收敛，不需要多算一轮数据 |
+
+<figure class="fig-card">
+<svg class="fig-svg" viewBox="0 0 720 260" role="img" aria-label="异步数据流：消息携带轮次标签在泳道间自由穿行，没有屏障，frontier 以虚线向前推进">
+<defs>
+<marker id="s42-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#0f766e"/></marker>
+</defs>
+<g class="t-sub">
+<text x="8" y="76">worker 1</text><text x="8" y="116">worker 2</text><text x="8" y="156">worker 3</text><text x="8" y="196">worker 4</text>
+</g>
+<g stroke="#0f766e" stroke-width="2" fill="none">
+<line x1="80" y1="68" x2="200" y2="68" marker-end="url(#s42-teal)"/>
+<line x1="120" y1="68" x2="150" y2="108" marker-end="url(#s42-teal)"/>
+<line x1="200" y1="108" x2="330" y2="108" marker-end="url(#s42-teal)"/>
+<line x1="260" y1="108" x2="290" y2="148" marker-end="url(#s42-teal)"/>
+<line x1="90" y1="148" x2="210" y2="148" marker-end="url(#s42-teal)"/>
+<line x1="330" y1="148" x2="430" y2="148" marker-end="url(#s42-teal)"/>
+<line x1="150" y1="188" x2="280" y2="188" marker-end="url(#s42-teal)"/>
+<line x1="380" y1="68" x2="480" y2="68" marker-end="url(#s42-teal)"/>
+<line x1="460" y1="108" x2="560" y2="108" marker-end="url(#s42-teal)"/>
+</g>
+<g class="t-micro" fill="#0f766e" font-weight="700">
+<text x="135" y="60">iter=1</text><text x="255" y="100">iter=2</text><text x="140" y="140">iter=1</text>
+<text x="205" y="180">iter=2</text><text x="425" y="60">iter=3</text><text x="375" y="140">iter=3</text>
+<text x="505" y="100">iter=4</text>
+</g>
+<line x1="320" y1="44" x2="320" y2="212" stroke="#6d28d9" stroke-width="2" stroke-dasharray="8 5"/>
+<text x="320" y="228" text-anchor="middle" class="t-micro" fill="#6d28d9" font-weight="700">frontier 推进中</text>
+<text x="560" y="228" text-anchor="middle" class="t-sub">无屏障：不同轮次的消息同时流动</text>
+</svg>
+<figcaption class="fig-caption">异步数据流：消息自带轮次标签，第 3、4 轮的消息不必等前两轮全部走完。frontier 是一条持续推进的时间下界，不是屏障。</figcaption>
+</figure>
+
+对比同步轮次，三个结构性差异：
+
+1. **轮次可以重叠**。同步模型里第 k+1 轮必须等第 k 轮全部结束；Timely 里第 2 轮的消息不必等第 1 轮全部走完，不同轮次的计算在系统里同时流动。这是同步路线结构性拿不到的好处。
+2. **重复消息就地吸收**。甲→丙、乙→丙、戊→甲这些重复发现到达时经过去重算子即被丢弃，不会拖住一整轮。
+3. **收敛靠数学判定**。frontier 越过所有轮次，循环封闭，不需要空转一轮数据。
+
+为了保持诚实，两点必须说清楚。第一，**重复消息的代价不是零**：它照样被产生、传输、查询一次去重状态，省掉的是"拖住整轮"，不是消息本身的开销。第二，**"不需要空转"省的是数据轮次，不是通信**——frontier 的推进本身需要各节点持续交换进度消息。异步模型没有消除同步，而是把"每轮一次全局屏障"换成了一套常驻的、细粒度的进度协议。
+
+代价还有编程门槛：每条消息都要正确携带时间戳，每个算子都要参与进度追踪（在 Timely 里体现为 capability 的管理），这是同步模型的程序员不需要操心的。
+
+**追问一：iterate 会攒够一批消息再处理吗？** 不会。数据面上消息逐条立即处理——物理时间轴里 `戊@(3,3)` 抢在 `(3,2)` 的最后一条消息之前流动，就是证据。唯一会"等"的是 frontier 这条控制通道，而它只回答"哪个时间戳可以定稿、状态可以回收"，不拦截数据。
+
+**追问二：那重复消息的代价怎么压低？** 靠合并（consolidation）。Differential 的每条更新是（数据， 时间， 权重）三元组，系统会随手把同一（数据， 时间）的更新合并：权重相加，抵消为零的直接删除。效果立竿见影——同一轮里先 +1 又 −1，合并后等于什么都没发生，下游零工作量；同一个 key 在同一时间被两次 +1，合并成 +2，distinct 只需输出一次。注意这是"随到随合并"，不是"攒够了再发"：合并不引入任何等待，只是把废更新消灭在传播途中。worker 之间的网络打包同理，是吞吐优化，对语义透明。
+
+到第二篇，（data, time, diff) 三元组会成为主角，合并将作为一等机制再出现。
+
+### 4.3 两种路线对照
+
+| 维度 | 同步轮次（BSP） | 逻辑时间（Timely） |
+|---|---|---|
+| 代表实现 | MPI、Pregel、Giraph、GraphX、Gelly | Timely / Differential Dataflow |
+| 时间在哪 | 系统全局状态（轮次编号，隐式、全序） | 每条消息携带（显式时间戳，偏序） |
+| 进度判定 | 轮末屏障 + 全局检查 | frontier 下界，逐算子推进 |
+| 轮次关系 | 严格先后，不可重叠 | 可重叠，乱序到达是常态 |
+| 重复消息 | 作废已消耗的一轮算力 | 到达即被去重吸收 |
+| 收敛判据 | 任意全局聚合（如 max\|Δ\|<ε） | 受单调性约束（时间不再前进） |
+| 长处 | 语义简单；每轮末全局一致快照 | 无整轮等待；无需空转确认 |
+| 短板 | straggler；整轮物化；空转轮 | 进度协议自身开销；编程门槛 |
+
+<div class="callout callout--insight">
+<p><strong>归因</strong>：这一节回答的问题是"循环里的时间记在哪里"。<strong>时间要么记在系统里，要么记在数据里。</strong>同步轮次用全局等待换来语义的简单；逻辑时间用更精细的簿记换来轮次的重叠。两条路线表达的是同一个循环，差别在于谁来记录"现在"。</p>
+</div>
+
+到目前为止，讨论的都是对一批输入的循环计算。如果输入不是一批，而是一批接一批持续到来——循环外面又套了一层时间的循环——系统需要回答的问题就又多了一个：每一批的边界划在哪里。这正是 epoch 要解决的，也是下一节的入口。
