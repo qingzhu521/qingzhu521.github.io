@@ -14,7 +14,7 @@ tags: [flink, timely-dataflow, 并行计算, 递归sql]
 }
 .post-content h2 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.01em; margin-top: 2.4em; }
 .post-content h3 { font-size: 1.2rem; font-weight: 600; margin-top: 1.8em; }
-.post-content table { display: block; overflow-x: auto; border-collapse: collapse; width: 100%; font-size: 0.9375rem; line-height: 1.6; }
+.post-content table { border-collapse: collapse; table-layout: auto; width: 100%; font-size: 0.9375rem; line-height: 1.6; }
 .post-content th { background: #f6f1e7; font-weight: 600; padding: 10px 12px; text-align: left; border-bottom: 1px solid #e8e0d4; }
 .post-content td { padding: 10px 12px; border-bottom: 1px solid #efe8db; }
 .fig-card { background: #fffdf8; border: 1px solid #e8e0d4; border-radius: 14px; padding: 24px; margin: 32px 0; }
@@ -30,13 +30,23 @@ tags: [flink, timely-dataflow, 并行计算, 递归sql]
 .t-label { font-size: 12px; fill: #1c1917; }
 .t-micro { font-size: 10px; fill: #a8a29e; }
 .t-white { font-size: 12px; font-weight: 600; fill: #ffffff; }
+@media (max-width: 600px) {
+  .post-title, .post-content h2, .post-content h3, .post-content h4 { text-wrap: balance; }
+  .post-content p { text-wrap: pretty; }
+  .post-content table { display: block; overflow-x: auto; }
+  .fig-card--dense { overflow-x: auto; padding: 16px; }
+  .fig-card--dense .fig-svg { min-width: 680px; }
+  .fig-card--dense .fig-caption { min-width: 680px; }
+}
 </style>
 
 本文是流计算基础系列的第一篇，讨论并行计算中最基本的问题：一项计算能够被并行到什么程度，以及决定这一上限的因素是什么。
 
-文章从计算之间的依赖关系出发。依赖关系决定了任务必须按照怎样的次序执行，也决定了增加处理器之后，执行时间还能缩短多少。当这些依赖被表示成图，便得到并行计算中常见的有向无环图，也就是 DAG。对于不包含循环的计算，这张图既描述了程序的执行次序，也揭示了它与函数式表达式之间的对应关系。
+文章从计算之间的依赖关系出发。把一项计算画成 DAG 时，每个节点代表一段可以由线程独立完成的工作，例如读取一批数据、执行一次 join 或合并一组中间结果；每条有向边代表数据依赖，表示下游节点必须等上游产生了对应数据，才具备执行条件。没有依赖边相连的节点可以同时运行，最长的依赖链则决定了增加处理器之后，执行时间还能缩短多少。
 
-然而，许多计算无法在一张静态的 DAG 中完成。递归查询、图遍历和迭代算法都需要把上一轮的结果送入下一轮，直到满足终止条件。MPI、Pregel 和 Flink 通常以同步轮次组织这类计算；Timely Dataflow 则把逻辑时间附着在数据上，使不同轮次的工作能够同时推进。两种方法的差异，实质上是两种表达计算进度的方式。
+现代 DAG 系统通常不要求程序员逐个指定线程的调用次序。程序描述数据要经过哪些变换、按什么键被分区、结果要流向哪些算子，编译器和运行时据此生成执行图，把算子实例部署到 worker，再让每个 worker 从到达自己的数据中选择可执行的工作。换句话说，图的节点编码“收到这类数据时做什么”，边编码“产生的数据送到哪里”。对于不包含循环的计算，这张图既给出了执行次序，也揭示了它与函数式表达式之间的对应关系。
+
+然而，许多计算无法在一张静态的 DAG 中完成。递归查询、图遍历和迭代算法都需要把上一轮的结果送入下一轮，直到满足终止条件。MPI、Pregel 和 Flink 通常以同步轮次组织这类计算；Timely Dataflow 则把逻辑时间附着在数据上，使不同轮次的工作能够同时推进。算子一边处理正在到达的消息，一边通过进度消息持续更新 frontier：数据计算与“未来还可能出现什么时间”的判断始终同时发生。两种方法的差异，实质上是两种表达计算进度的方式。
 
 一次并行计算通常处理一批有限的数据，计算完成，任务也随之结束。如果新的数据持续到来，同一项计算就要反复进行。系统可以用 epoch 标记数据所属的逻辑阶段；前一个 epoch 留下的结果，如果还要参与后一个 epoch 的计算，就形成了状态。状态如何保存、恢复并保持一致，将在后续文章中讨论。
 
@@ -452,85 +462,134 @@ Timely 的办法是：**时间戳不是一个数，而是一个坐标序列**。
 回边在这个结构里扮演什么角色？**消息每绕回边一圈，最内层坐标加一**——`(2, 3)` 绕一圈变成 `(2, 4)`。这条规则有一个重要推论：消息沿环前进时，时间必然严格增大，不存在"时间在环上原地打转"的消息。frontier 因此在环上单调推进，循环的终止有了数学保证。
 
 <figure class="fig-card">
-<svg class="fig-svg" viewBox="0 0 760 560" role="img" aria-label="上半：输入在顶层 scope 中时间戳为 t=3，进入 iterate scope 后压入 iteration 坐标，内部按 (3,0) 到 (3,3) 分阶段并标出真实数据，离开时弹出坐标，下游算子只见 t=3；下半：物理时间轴上消息按到达顺序流动，没有阶段边界">
+<svg class="fig-svg" viewBox="0 0 760 600" role="img" aria-label="逻辑视图：时间戳分层只在 iterate 内部，输入压入坐标、离开弹出，下游不可见。物理视图：三条并行泳道，戊@(3,3) 在 (3,2) 最后一条重复消息到达之前开工，各 worker 的 frontier 独立推进，不存在同步屏障">
 <defs>
 <marker id="ph-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#0f766e"/></marker>
 <marker id="ph-gray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#57534e"/></marker>
+<marker id="ph-purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#6d28d9"/></marker>
+<marker id="ph-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#b91c1c"/></marker>
+<marker id="ph-orange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#9a3412"/></marker>
 </defs>
-<text x="30" y="28" class="t-title">逻辑视图：分阶段只发生在 iterate 内部（每层写出真实数据）</text>
-<rect x="60" y="44" width="118" height="30" rx="9" fill="#ffffff" stroke="#57534e" stroke-width="1.4"/><text x="119" y="63" text-anchor="middle" class="t-label">输入 {P} @ t=3</text>
+<text x="30" y="26" class="t-title">逻辑视图：分阶段只发生在 iterate 内部</text>
+<rect x="60" y="44" width="120" height="30" rx="9" fill="#ffffff" stroke="#57534e" stroke-width="1.4"/><text x="120" y="63" text-anchor="middle" class="t-label">输入 {P} @t=3</text>
 <text x="190" y="63" class="t-sub">顶层 scope：时间戳就是 3</text>
-<line x1="119" y1="74" x2="119" y2="98" stroke="#0f766e" stroke-width="2" marker-end="url(#ph-teal)"/>
-<text x="130" y="90" class="t-micro" fill="#0f766e">压入坐标：3 → (3, 0)</text>
-<rect x="40" y="100" width="680" height="172" rx="14" fill="#f0fdfa" stroke="#0f766e" stroke-width="1.2" stroke-dasharray="6 5"/>
-<text x="54" y="122" class="t-sub" fill="#0f766e" font-weight="600">iterate scope（iteration 坐标只存在于这个框内）</text>
+<line x1="120" y1="74" x2="120" y2="102" stroke="#0f766e" stroke-width="2.2" marker-end="url(#ph-teal)"/>
+<text x="140" y="94" class="t-micro" fill="#0f766e">压坐标 3 → (3, 0)</text>
+<rect x="32" y="106" width="696" height="170" rx="14" fill="#f0fdfa" stroke="#0f766e" stroke-width="1.2" stroke-dasharray="6 5"/>
+<text x="48" y="128" class="t-sub" fill="#0f766e" font-weight="600">iterate scope · iteration 坐标只在这个框内存在</text>
 <g>
-<rect x="60" y="132" width="150" height="122" rx="10" fill="#ffffff" stroke="#0f766e" stroke-width="1.2" stroke-dasharray="4 3"/>
-<text x="72" y="152" class="t-micro" fill="#0f766e" font-weight="700">阶段 (3,0)</text>
-<text x="72" y="176" class="t-label">Δ = {P}</text>
-<text x="72" y="198" class="t-sub">⋈ holds</text>
-<text x="72" y="220" class="t-label">→ 甲 @(3,1)</text>
-<text x="72" y="241" class="t-label">→ 丙 @(3,1)</text>
+<rect x="48" y="136" width="158" height="120" rx="10" fill="#ffffff" stroke="#0f766e" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="62" y="156" class="t-micro" fill="#0f766e" font-weight="700">(3,0)</text>
+<text x="62" y="178" class="t-label">Δ₀ = {P}</text>
+<text x="62" y="198" class="t-sub">⋈ holds</text>
+<text x="62" y="220" class="t-label">→ 甲 @(3,1)</text>
+<text x="62" y="241" class="t-label">→ 丙 @(3,1)</text>
 </g>
 <g>
-<rect x="220" y="132" width="150" height="122" rx="10" fill="#ffffff" stroke="#0f766e" stroke-width="1.2" stroke-dasharray="4 3"/>
-<text x="232" y="152" class="t-micro" fill="#0f766e" font-weight="700">阶段 (3,1)</text>
-<text x="232" y="176" class="t-label">Δ = {甲, 丙}</text>
+<rect x="218" y="136" width="158" height="120" rx="10" fill="#ffffff" stroke="#0f766e" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="232" y="156" class="t-micro" fill="#0f766e" font-weight="700">(3,1)</text>
+<text x="232" y="178" class="t-label">Δ₁ = {甲, 丙}</text>
 <text x="232" y="198" class="t-sub">⋈ holds</text>
-<text x="232" y="220" class="t-label">→ 乙、丁 @(3,2)</text>
-<text x="232" y="241" class="t-label" fill="#b91c1c">✗ 丙 @(3,2) 已知</text>
+<text x="232" y="220" class="t-label">→ 乙, 丁 @(3,2)</text>
+<text x="232" y="241" class="t-label" fill="#b91c1c">✗ 丙 已知</text>
 </g>
 <g>
-<rect x="380" y="132" width="150" height="122" rx="10" fill="#ffffff" stroke="#0f766e" stroke-width="1.2" stroke-dasharray="4 3"/>
-<text x="392" y="152" class="t-micro" fill="#0f766e" font-weight="700">阶段 (3,2)</text>
-<text x="392" y="176" class="t-label">Δ = {乙, 丁}</text>
-<text x="392" y="198" class="t-sub">⋈ holds</text>
-<text x="392" y="220" class="t-label">→ 戊 @(3,3)</text>
-<text x="392" y="241" class="t-label" fill="#b91c1c">✗ 丙 @(3,3) 已知</text>
+<rect x="388" y="136" width="158" height="120" rx="10" fill="#ffffff" stroke="#0f766e" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="402" y="156" class="t-micro" fill="#0f766e" font-weight="700">(3,2)</text>
+<text x="402" y="178" class="t-label">Δ₂ = {乙, 丁}</text>
+<text x="402" y="198" class="t-sub">⋈ holds</text>
+<text x="402" y="220" class="t-label">→ 戊 @(3,3)</text>
+<text x="402" y="241" class="t-label" fill="#b91c1c">✗ 丙 已知</text>
 </g>
 <g>
-<rect x="540" y="132" width="150" height="122" rx="10" fill="#ffffff" stroke="#0f766e" stroke-width="1.2" stroke-dasharray="4 3"/>
-<text x="552" y="152" class="t-micro" fill="#0f766e" font-weight="700">阶段 (3,3)</text>
-<text x="552" y="176" class="t-label">Δ = {戊}</text>
-<text x="552" y="198" class="t-sub">⋈ holds</text>
-<text x="552" y="220" class="t-label" fill="#b91c1c">✗ 甲 @(3,4) 已知</text>
-<text x="552" y="241" class="t-label">∅ 无新增，停</text>
+<rect x="558" y="136" width="158" height="120" rx="10" fill="#ffffff" stroke="#0f766e" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="572" y="156" class="t-micro" fill="#0f766e" font-weight="700">(3,3)</text>
+<text x="572" y="178" class="t-label">Δ₃ = {戊}</text>
+<text x="572" y="198" class="t-sub">⋈ holds</text>
+<text x="572" y="220" class="t-label" fill="#b91c1c">✗ 甲 已知</text>
+<text x="572" y="241" class="t-label">∅ 停</text>
 </g>
 <g stroke="#0f766e" stroke-width="1.8" stroke-dasharray="5 4" fill="none">
-<line x1="212" y1="193" x2="218" y2="193" marker-end="url(#ph-teal)"/>
-<line x1="372" y1="193" x2="378" y2="193" marker-end="url(#ph-teal)"/>
-<line x1="532" y1="193" x2="538" y2="193" marker-end="url(#ph-teal)"/>
+<line x1="208" y1="196" x2="216" y2="196" marker-end="url(#ph-teal)"/>
+<line x1="378" y1="196" x2="386" y2="196" marker-end="url(#ph-teal)"/>
+<line x1="548" y1="196" x2="556" y2="196" marker-end="url(#ph-teal)"/>
 </g>
-<line x1="615" y1="254" x2="615" y2="284" stroke="#57534e" stroke-width="2" marker-end="url(#ph-gray)"/>
-<text x="450" y="300" text-anchor="middle" class="t-micro">弹出坐标：(3, k) → 3</text>
-<rect x="545" y="286" width="140" height="30" rx="9" fill="#ffffff" stroke="#57534e" stroke-width="1.4"/><text x="615" y="305" text-anchor="middle" class="t-label">输出 @ t=3</text>
-<text x="615" y="336" text-anchor="middle" class="t-sub">下游算子只见 epoch = 3，iteration 坐标不泄漏</text>
-<line x1="30" y1="356" x2="730" y2="356" stroke="#e8e0d4"/>
-<text x="30" y="382" class="t-title">物理视图：一条时间轴，没有阶段边界</text>
-<g stroke="#57534e" stroke-width="1.2" fill="none">
-<line x1="92" y1="452" x2="92" y2="470"/><line x1="158" y1="452" x2="158" y2="470"/><line x1="224" y1="452" x2="224" y2="470"/>
-<line x1="290" y1="452" x2="290" y2="470"/><line x1="356" y1="452" x2="356" y2="470"/><line x1="422" y1="452" x2="422" y2="470"/>
-<line x1="488" y1="452" x2="488" y2="470"/><line x1="554" y1="452" x2="554" y2="470"/><line x1="620" y1="452" x2="620" y2="470"/>
-<line x1="60" y1="470" x2="736" y2="470" marker-end="url(#ph-gray)"/>
+<line x1="637" y1="256" x2="637" y2="286" stroke="#57534e" stroke-width="2.2" marker-end="url(#ph-gray)"/>
+<text x="460" y="302" text-anchor="middle" class="t-micro">弹出坐标：(3, k) → 3</text>
+<rect x="557" y="288" width="140" height="30" rx="9" fill="#ffffff" stroke="#57534e" stroke-width="1.4"/><text x="627" y="307" text-anchor="middle" class="t-label">输出 @t=3</text>
+<text x="627" y="338" text-anchor="middle" class="t-sub">下游算子只见 epoch = 3，iteration 坐标不泄漏</text>
+<line x1="20" y1="358" x2="740" y2="358" stroke="#e8e0d4"/>
+<text x="30" y="384" class="t-title">物理视图：三个 worker 的并行时间轴（无阶段边界）</text>
+<g stroke="#efe8db" stroke-width="1">
+<line x1="50" y1="438" x2="730" y2="438"/>
+<line x1="50" y1="490" x2="730" y2="490"/>
+<line x1="50" y1="542" x2="730" y2="542"/>
+</g>
+<g class="t-sub" fill="#57534e">
+<text x="10" y="426">worker 1</text>
+<text x="10" y="478">worker 2</text>
+<text x="10" y="530">worker 3</text>
+</g>
+<g fill="#6d28d9" opacity="0.07">
+<rect x="60" y="404" width="248" height="38"/>
+<rect x="60" y="456" width="408" height="38"/>
+<rect x="60" y="508" width="370" height="38"/>
+</g>
+<g stroke="#0f766e" stroke-width="1.1" opacity="0.55" fill="none">
+<line x1="120" y1="422" x2="145" y2="422" marker-end="url(#ph-teal)"/>
+<path d="M 92 436 C 100 455, 140 465, 163 470" marker-end="url(#ph-teal)"/>
+<line x1="201" y1="422" x2="245" y2="422" marker-end="url(#ph-teal)"/>
+<line x1="221" y1="474" x2="265" y2="474" marker-end="url(#ph-teal)"/>
+<line x1="321" y1="474" x2="372" y2="474" marker-end="url(#ph-teal)"/>
+</g>
+<g stroke="#b91c1c" stroke-width="1" opacity="0.45" stroke-dasharray="3 3" fill="none">
+<path d="M 173 436 C 220 505, 380 512, 448 521" marker-end="url(#ph-red)"/>
+<path d="M 273 436 C 330 500, 460 508, 514 520" marker-end="url(#ph-red)"/>
+<path d="M 404 488 C 470 482, 540 486, 598 514" marker-end="url(#ph-red)"/>
+</g>
+<rect x="368" y="393" width="58" height="152" fill="#ccfbf1" opacity="0.3"/>
+<text x="397" y="390" text-anchor="middle" class="t-micro" fill="#0f766e">重叠</text>
+<g>
+<rect x="64" y="408" width="56" height="28" rx="8" fill="#ffffff" stroke="#57534e" stroke-width="1.3"/><text x="92" y="426" text-anchor="middle" class="t-label">P</text><text x="92" y="434" text-anchor="middle" class="t-micro">(3,0)</text>
+<rect x="145" y="408" width="56" height="28" rx="8" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.3"/><text x="173" y="426" text-anchor="middle" class="t-label">甲</text><text x="173" y="434" text-anchor="middle" class="t-micro">(3,1)</text>
+<rect x="245" y="408" width="56" height="28" rx="8" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.3"/><text x="273" y="426" text-anchor="middle" class="t-label">乙</text><text x="273" y="434" text-anchor="middle" class="t-micro">(3,2)</text>
 </g>
 <g>
-<rect x="64" y="420" width="56" height="32" rx="8" fill="#ffffff" stroke="#57534e" stroke-width="1.3"/><text x="92" y="434" text-anchor="middle" class="t-label">P</text><text x="92" y="447" text-anchor="middle" class="t-micro">@(3,0)</text>
-<rect x="130" y="420" width="56" height="32" rx="8" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.3"/><text x="158" y="434" text-anchor="middle" class="t-label">甲</text><text x="158" y="447" text-anchor="middle" class="t-micro">@(3,1)</text>
-<rect x="196" y="420" width="56" height="32" rx="8" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.3"/><text x="224" y="434" text-anchor="middle" class="t-label">丙</text><text x="224" y="447" text-anchor="middle" class="t-micro">@(3,1)</text>
-<rect x="262" y="420" width="56" height="32" rx="8" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.3"/><text x="290" y="434" text-anchor="middle" class="t-label">乙</text><text x="290" y="447" text-anchor="middle" class="t-micro">@(3,2)</text>
-<rect x="328" y="420" width="56" height="32" rx="8" fill="#fee2e2" stroke="#b91c1c" stroke-width="1.3" stroke-dasharray="4 3"/><text x="356" y="434" text-anchor="middle" class="t-label" fill="#b91c1c">丙 ✗</text><text x="356" y="447" text-anchor="middle" class="t-micro">@(3,2)</text>
-<rect x="394" y="420" width="56" height="32" rx="8" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.3"/><text x="422" y="434" text-anchor="middle" class="t-label">丁</text><text x="422" y="447" text-anchor="middle" class="t-micro">@(3,2)</text>
-<rect x="460" y="420" width="56" height="32" rx="8" fill="#0f766e"/><text x="488" y="434" text-anchor="middle" class="t-white">戊</text><text x="488" y="447" text-anchor="middle" font-size="10" fill="#ccfbf1">@(3,3)</text>
-<rect x="526" y="420" width="56" height="32" rx="8" fill="#fee2e2" stroke="#b91c1c" stroke-width="1.3" stroke-dasharray="4 3"/><text x="554" y="434" text-anchor="middle" class="t-label" fill="#b91c1c">丙 ✗</text><text x="554" y="447" text-anchor="middle" class="t-micro">@(3,3)</text>
-<rect x="592" y="420" width="56" height="32" rx="8" fill="#fee2e2" stroke="#b91c1c" stroke-width="1.3" stroke-dasharray="4 3"/><text x="620" y="434" text-anchor="middle" class="t-label" fill="#b91c1c">甲 ✗</text><text x="620" y="447" text-anchor="middle" class="t-micro">@(3,4)</text>
+<rect x="165" y="460" width="56" height="28" rx="8" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.3"/><text x="193" y="478" text-anchor="middle" class="t-label">丙</text><text x="193" y="486" text-anchor="middle" class="t-micro">(3,1)</text>
+<rect x="265" y="460" width="56" height="28" rx="8" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.3"/><text x="293" y="478" text-anchor="middle" class="t-label">丁</text><text x="293" y="486" text-anchor="middle" class="t-micro">(3,2)</text>
+<rect x="372" y="460" width="50" height="28" rx="8" fill="#0f766e"/><text x="397" y="478" text-anchor="middle" class="t-white">戊</text><text x="397" y="486" text-anchor="middle" class="t-micro" fill="#ccfbf1">(3,3)</text>
 </g>
-<line x1="668" y1="412" x2="668" y2="470" stroke="#6d28d9" stroke-width="2" stroke-dasharray="6 5"/>
-<text x="668" y="402" text-anchor="middle" class="t-micro" fill="#6d28d9" font-weight="700">frontier → ∞</text>
-<path d="M 488 454 C 480 474, 468 484, 448 492" stroke="#0f766e" stroke-width="1.6" stroke-dasharray="4 3" fill="none" marker-end="url(#ph-teal)"/>
-<text x="430" y="508" text-anchor="middle" class="t-sub">戊@(3,3) 在 乙→丙（同属第 (3,2) 轮的展开）到来之前就开始流动</text>
-<text x="430" y="528" text-anchor="middle" class="t-sub">同步模型里这是被屏障禁止的；这里只有消息先后，没有阶段</text>
+<g>
+<rect x="452" y="512" width="56" height="28" rx="8" fill="#fee2e2" stroke="#b91c1c" stroke-width="1.3" stroke-dasharray="4 3"/><text x="480" y="530" text-anchor="middle" class="t-label" fill="#b91c1c">丙 ✗</text><text x="480" y="538" text-anchor="middle" class="t-micro">(3,2)</text>
+<rect x="518" y="512" width="56" height="28" rx="8" fill="#fee2e2" stroke="#b91c1c" stroke-width="1.3" stroke-dasharray="4 3"/><text x="546" y="530" text-anchor="middle" class="t-label" fill="#b91c1c">丙 ✗</text><text x="546" y="538" text-anchor="middle" class="t-micro">(3,3)</text>
+<rect x="584" y="512" width="56" height="28" rx="8" fill="#fee2e2" stroke="#b91c1c" stroke-width="1.3" stroke-dasharray="4 3"/><text x="612" y="530" text-anchor="middle" class="t-label" fill="#b91c1c">甲 ✗</text><text x="612" y="538" text-anchor="middle" class="t-micro">(3,4)</text>
+</g>
+<line x1="440" y1="393" x2="440" y2="548" stroke="#9a3412" stroke-width="2.2" stroke-dasharray="8 6"/>
+<text x="448" y="392" class="t-micro" fill="#9a3412" font-weight="700">BSP 屏障（本图不存在）</text>
+<g stroke="#6d28d9" stroke-width="1.5" stroke-dasharray="4 4" opacity="0.35">
+<line x1="210" y1="408" x2="210" y2="438"/>
+<line x1="330" y1="460" x2="330" y2="490"/>
+<line x1="380" y1="512" x2="380" y2="542"/>
+</g>
+<g stroke="#6d28d9" stroke-width="1.4" fill="none" opacity="0.8">
+<line x1="214" y1="444" x2="304" y2="444" marker-end="url(#ph-purple)"/>
+<line x1="334" y1="496" x2="464" y2="496" marker-end="url(#ph-purple)"/>
+<line x1="384" y1="548" x2="426" y2="548" marker-end="url(#ph-purple)"/>
+</g>
+<g stroke="#6d28d9" stroke-width="2" stroke-dasharray="4 4">
+<line x1="308" y1="408" x2="308" y2="438"/>
+<line x1="468" y1="460" x2="468" y2="490"/>
+<line x1="430" y1="512" x2="430" y2="542"/>
+</g>
+<text x="380" y="564" text-anchor="middle" class="t-sub">箭头：消息到达即触发下一条计算；frontier（紫色）随完成持续右移——阴影区已封闭、可定稿，三个 worker 互不对齐</text>
+<g class="t-sub" fill="#57534e">
+<rect x="60" y="580" width="10" height="10" fill="#0f766e"/><text x="76" y="589">新结果立即流动</text>
+<rect x="192" y="580" width="10" height="10" fill="#fee2e2" stroke="#b91c1c" stroke-dasharray="2 2"/><text x="208" y="589">重复就地吸收</text>
+<line x1="328" y1="580" x2="328" y2="590" stroke="#6d28d9" stroke-width="2" stroke-dasharray="3 2"/><text x="336" y="589">frontier（持续推进）</text>
+<line x1="456" y1="580" x2="476" y2="580" stroke="#9a3412" stroke-width="2" stroke-dasharray="5 3"/><text x="484" y="589">BSP 屏障（不存在）</text>
+</g>
 </svg>
-<figcaption class="fig-caption">上半是逻辑视图：时间戳的分层只存在于 iterate scope 内部——输入在顶层 scope 是 t=3，进入时压入坐标变成 (3,0)，内部按 (3,0)…(3,3) 分阶段（每层标出真实数据），离开时弹出坐标，下游算子只见 t=3。下半是物理视图：同一批消息按物理时间流动，(3,3) 的戊在 (3,2) 阶段的最后一条消息之前就开始传播。逻辑分层是语义，物理不分层是执行。</figcaption>
+<figcaption class="fig-caption">逻辑视图：时间戳的分层只存在于 iterate scope 内部——输入为 t=3，进入时压入坐标变成 (3,0)，内部按 (3,0)…(3,3) 分阶段（每层标出真实数据），离开时弹出坐标，下游算子只见 t=3。物理视图：同一批消息分布在三个 worker 上按物理时间并行处理——每条消息到达即触发下一条计算（细箭头；红色虚线是产生重复消息的触发），戊@(3,3) 在 (3,2) 的最后一条重复消息到达之前就已开工；frontier（紫色）随每条消息完成而持续右移，阴影区是已封闭、可定稿的时间，三个 worker 的位置互不对齐；橙色虚线是 BSP 会设置的屏障位置，这张图里不存在。逻辑分层是语义，物理不分层、轮次可重叠是执行。</figcaption>
 </figure>
 
 #### 4.2.2 偏序：允许"不可比"的时间点
@@ -685,35 +744,187 @@ let reach = start.iterate(|known| {
 <p><strong>归因</strong>：这一节回答的问题是"循环里的时间记在哪里"。<strong>时间要么记在系统里，要么记在数据里。</strong>同步轮次用全局等待换来语义的简单；逻辑时间用更精细的簿记换来轮次的重叠。两条路线表达的是同一个循环，差别在于谁来记录"现在"。</p>
 </div>
 
-### 4.4 落地：一条 WITH RECURSIVE，以及 OceanBase 怎么跑它
+### 4.4 用 SQL 说出来：相关子查询与递归
 
-两条路线都是引擎内部的事，用户写的是 SQL。把 §3 的股权穿透写成标准 SQL：
+两条路线最后都要落到用户写的查询上。先看两种 SQL 形态：一种是非等值相关子查询，它让每条外层记录携带自己的搜索条件；另一种是 SQL 的递归模型，它让一个集合的定义反复作用于上一轮结果。它们都能用 §4.2 的 scope 表达，但表达的是两种不同的工作。
+
+#### 4.4.1 非等值相关子查询：截止时刻之前的最近事件
+
+考虑一条“截止时刻之前最近发生了什么”的查询：
+
+```sql
+SELECT u.id,
+       (
+         SELECT e.value
+         FROM events e
+         WHERE e.user_id = u.id
+           AND e.ts <= u.cutoff
+         ORDER BY e.ts DESC
+         LIMIT 1
+       ) AS last_value
+FROM users u;
+```
+
+外层每来一条 `u`，内层都要回答同一个问题：这个用户在 `cutoff` 之前最近的一条事件是什么。`user_id` 是等值相关条件，`ts <= cutoff` 是非等值范围条件；真正让执行复杂起来的，是每个外层行都有自己的 `cutoff`，还要在范围内取按时间倒序的第一条。
+
+这里需要先澄清一个容易误会的说法：Flink SQL 并不是只能把非等值条件交给 theta join。它的 `SubQueryDecorrelator` 支持等值和非等值相关条件，非等值 `EXISTS` 通常也可以改写为 semi join。
+
+真正困难的是这条**相关标量 Top-1**。Flink 把 Correlate 改写成 Rank/Top-N 时，要求相关条件能形成等值分组；`e.user_id = u.id` 满足这一要求，`e.ts <= u.cutoff` 却是每个外层记录各不相同的范围条件。由于完整模式不满足 Rank 改写的前提，计划可能保留 Correlate，也就是每条外层记录驱动一次内层扫描、排序和 `LIMIT 1`。
+
+流式执行还受另一个约束：regular join 至少需要一个等值键来分区状态，其他非等值条件只能在等值键匹配之后再检查。这里的问题是优化器和运行时可能落入更贵的执行路径，而不是 SQL 表达不了这类查询。
+
+Timely 有另一种实现思路：不把所有外层记录和内层事件先展开成候选集合，而是把每个外层条件封装进一个嵌套 scope。`events` 按 `(user_id, 时间桶)` 维护成常驻 arrangement；一条 `(u.id, u.cutoff)` 进入 scope 时带上 `(epoch, 0)`，先探测 `cutoff` 所在的时间桶。命中就取出该桶内最新事件并离开；没命中就把桶编号减一，沿 feedback 进入 `(epoch, 1)`，继续探测更早的桶。离开 scope 时，iteration 坐标被弹出，输出仍属于外层 epoch。
+
+<figure class="fig-card fig-card--dense">
+<svg class="fig-svg" viewBox="0 0 760 440" role="img" aria-label="相关标量 Top-1 查询在 Timely 的嵌套 scope 中按时间桶逐轮探测：外层记录进入 scope，未命中沿 feedback 换到更早桶，命中后取出 Top-1 并离开 scope">
+<defs>
+<marker id="asof-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#0f766e"/></marker>
+<marker id="asof-idle" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#a8a29e"/></marker>
+</defs>
+<text x="30" y="30" class="t-title">外层输入 → 嵌套搜索 scope → 输出</text>
+<rect x="30" y="58" width="150" height="56" rx="12" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.5"/>
+<text x="105" y="80" text-anchor="middle" class="t-label">u = 42</text><text x="105" y="100" text-anchor="middle" class="t-sub">cutoff = 10:37 · @e</text>
+<line x1="184" y1="86" x2="250" y2="86" stroke="#a8a29e" stroke-width="2" marker-end="url(#asof-idle)"/>
+<text x="217" y="76" text-anchor="middle" class="t-micro">enter</text>
+<rect x="250" y="48" width="480" height="300" rx="18" fill="#f0fdfa" stroke="#0f766e" stroke-width="1.6"/>
+<text x="274" y="76" class="t-title" fill="#0f766e">Correlated Search Scope · (e, i)</text>
+<text x="694" y="76" text-anchor="end" class="t-sub" fill="#0f766e">scope 内的时间比外层多一个坐标</text>
+<g>
+<rect x="276" y="104" width="106" height="42" rx="10" fill="#ffffff" stroke="#a8a29e"/><text x="329" y="129" text-anchor="middle" class="t-label">probe i=0</text>
+<rect x="414" y="104" width="106" height="42" rx="10" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="467" y="129" text-anchor="middle" class="t-label">probe i=1</text>
+<rect x="552" y="104" width="132" height="42" rx="10" fill="#0f766e"/><text x="618" y="129" text-anchor="middle" class="t-white">Top-1 / leave</text>
+<line x1="382" y1="125" x2="410" y2="125" stroke="#a8a29e" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#asof-idle)"/>
+<line x1="520" y1="125" x2="548" y2="125" stroke="#0f766e" stroke-width="2.4" marker-end="url(#asof-arrow)"/>
+<path d="M 329 148 C 322 178, 350 190, 414 158" stroke="#0f766e" stroke-width="2" stroke-dasharray="6 5" fill="none" marker-end="url(#asof-arrow)"/>
+<text x="372" y="186" text-anchor="middle" class="t-micro" fill="#0f766e">未命中：bucket - 1，(e,i) → (e,i+1)</text>
+</g>
+<g>
+<text x="306" y="226" class="t-sub">user 42 的 events arrangement</text>
+<rect x="276" y="244" width="128" height="42" rx="8" fill="#ffffff" stroke="#a8a29e"/><text x="340" y="264" text-anchor="middle" class="t-label">10:30–10:39</text><text x="340" y="280" text-anchor="middle" class="t-micro">i=0 · 无满足行</text>
+<rect x="414" y="244" width="128" height="42" rx="8" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="478" y="264" text-anchor="middle" class="t-label">10:20–10:29</text><text x="478" y="280" text-anchor="middle" class="t-micro" fill="#0f766e">i=1 · 命中 10:26</text>
+<rect x="552" y="244" width="128" height="42" rx="8" fill="#ffffff" stroke="#d6d3d1" stroke-dasharray="4 3"/><text x="616" y="264" text-anchor="middle" class="t-label">10:10–10:19</text><text x="616" y="280" text-anchor="middle" class="t-micro">不再探测</text>
+<line x1="329" y1="148" x2="329" y2="238" stroke="#a8a29e" stroke-width="1.5" stroke-dasharray="3 4" marker-end="url(#asof-idle)"/>
+<line x1="467" y1="148" x2="467" y2="238" stroke="#0f766e" stroke-width="2" marker-end="url(#asof-arrow)"/>
+</g>
+<g>
+<rect x="590" y="302" width="118" height="34" rx="9" fill="#ffffff" stroke="#0f766e" stroke-width="1.4"/><text x="649" y="323" text-anchor="middle" class="t-label">弹出坐标 → @e</text>
+</g>
+<line x1="618" y1="148" x2="618" y2="372" stroke="#0f766e" stroke-width="2.4" marker-end="url(#asof-arrow)"/>
+<rect x="548" y="374" width="150" height="44" rx="11" fill="#ffffff" stroke="#0f766e" stroke-width="1.5"/><text x="623" y="394" text-anchor="middle" class="t-label">last_value</text><text x="623" y="410" text-anchor="middle" class="t-micro">(42, 10:26) · @e</text>
+<g class="t-sub">
+<circle cx="42" cy="378" r="4" fill="#a8a29e"/><text x="54" y="382">enter：外层时间 e → scope 内 (e,0)</text>
+<circle cx="42" cy="404" r="4" fill="#0f766e"/><text x="54" y="408">feedback：只携带还没完成的搜索状态</text>
+<circle cx="42" cy="430" r="4" fill="#0f766e"/><text x="54" y="434">leave：命中即退出，不扫更早的桶</text>
+</g>
+</svg>
+<figcaption class="fig-caption">相关条件不必先展开成完整候选集合。外层记录带着自己的 cutoff 进入 scope，按时间桶逐轮探测；命中后立刻弹出 iteration 坐标，未命中才把“继续找更早桶”的状态沿 feedback 送回。不同外层记录可以停在不同 iteration。</figcaption>
+</figure>
+
+这张图的收益来自三个物理事实：候选空间按时间和用户预先组织好了，搜索状态可以复用，命中后能提前结束。它不是 SQL 语义强制的：有合适的 as-of join 或范围索引时，直接范围连接可能更快；如果几乎每条外层记录都要扫到最后一个桶，逐桶反馈也帮不上忙。这里要说的是，Timely 允许把这种**逐步搜索过程**写进一个可组合的 scope，而不是只能把问题压成一次巨大的 join。
+
+#### 4.4.2 SQL 的递归模型：WITH RECURSIVE
+
+第二种 SQL 形态是 §3 一直使用的股权穿透。标准写法如下：
 
 ```sql
 WITH RECURSIVE reach(company) AS (
   SELECT 'P'                                   -- 锚成员：起点
-  UNION                                        -- 去重：环上重复的发现被吸收
+  UNION                                        -- 去重：重复发现被吸收
   SELECT h.owned                               -- 递归成员：拿上一轮的发现再查一轮
   FROM reach r JOIN holds h ON r.company = h.holder
 )
 SELECT company FROM reach;
 ```
 
-这条 SQL 和 §3 的循环完全同构：锚成员就是初始的 Δ 集合；递归成员里的 JOIN 就是每轮的"已知 ⋈ holds"；UNION 的去重就是 distinct，也就是终止性——换成 UNION ALL，遇到 `戊→甲` 的交叉持股，查询会一直跑下去，Postgres 不会救你。SQL 标准还顺手规定了半朴素求值：递归成员只引用**上一轮**产生的行，所以 §4.1 推演表里的"Δ 集合 ⋈ holds"不是某个引擎的优化技巧，而是标准写死的语义。
+它和 §3 的循环同构：锚成员是初始的 Δ 集合；递归成员里的 JOIN 是每轮拿新结果继续扩展；UNION 的去重就是 distinct，也是终止性。SQL 标准还规定了半朴素求值：递归成员只引用上一轮产生的行，所以每轮的“Δ ⋈ holds”不是某个引擎的临时优化。
 
-那这条 SQL 在真实引擎里怎么跑？以 OceanBase 为例，它的做法是教科书式的迭代驱动：
-
-1. 先执行锚成员，结果 `{P}` 物化成一张工作表；
-2. 每一轮：拿上一轮的工作表去 join `holds`，结果与累计结果去重，新行物化成下一张工作表；
-3. 某一轮工作表为空——比如 `戊→甲` 被去重后没有新行——迭代结束，把各轮结果 UNION 起来输出。
-
-每一轮的 join 是一棵普通的分布式执行计划，可以走 PX 并行；但**轮与轮之间是串行的**：第 k+1 轮必须等第 k 轮的结果全部物化完成才能开始。这正是 §4.1 同步轮次在 SQL 引擎里的样子——一张动态图被切成一轮一轮的静态查询，每轮付出一次物化和一次执行调度的固定成本，最后还要空转一轮确认收敛。对股权穿透这种"几轮就收敛、每轮数据量很小"的查询，开销主要不在数据量，而在每一轮的启动成本上。
-
-对照之下，同一条 SQL 在 Timely 式的引擎里就是 §4.2.4 那张物理时间轴：P 带着时间戳进入数据流，甲、丙一被发现就立刻继续流动，重复发现被 distinct 就地吸收，frontier 越过所有轮次即告结束——没有临时表，没有轮次，也没有空转。
+以 OceanBase 为例，真实执行是教科书式的迭代驱动：先执行锚成员并物化第一张工作表；每一轮拿上一轮工作表去 join `holds`，去重后物化下一张工作表；某一轮没有新行，迭代结束。每一轮内部可以走 PX 并行，但**轮与轮之间是串行的**——第 k+1 轮必须等第 k 轮结果全部物化才能开始。这正是 §4.1 同步轮次在 SQL 引擎里的样子。
 
 顺带一个历史事实：纯关系代数（select / project / join / union）被证明表达不了传递闭包（Aho & Ullman, POPL 1979），所以 SQL:1999 专门把递归写进了标准。循环不是语法糖——没有它，股权穿透这类查询在 SQL 里根本说不出来。
 
-到目前为止，讨论的都是对一批输入的循环计算。如果输入不是一批，而是一批接一批持续到来——循环外面又套了一层时间的循环——系统需要回答的问题就又多了一个：每一批的边界划在哪里。这正是 epoch 要解决的，也是下一节的入口。
+### 4.5 两种执行模型：火山与数据流
+
+火山模型由控制流驱动数据流，Timely 由数据流驱动计算。火山模型里，父算子不断调用子算子的 `next()`，执行顺序由调用栈规定；Timely 的查询图描述的是记录怎么变换、流向哪里，而不是规定全局的“第 k 步做什么”。一条记录或一个搜索状态到达某个算子，负责该算子的 worker 就执行对应的任务。
+
+把 §4.4 的两条 SQL 放进来，差别会更具体。对相关标量 Top-1，Volcano 可以把外层记录作为参数，驱动内层的 Sort + Limit：每条外层记录绑定一次 `cutoff`，打开或复用一次内层计划，取到结果后关闭。OceanBase 的优化器可能用半连接、窗口或其他形式改写它，但调用顺序仍由算子树和 driver 决定。Timely 则把查询翻译成长期存在的操作位置：外层条件进入 scope，内层 arrangement 常驻，没有命中的搜索状态沿 feedback 继续移动，命中的记录直接离开。不是有人命令“现在检查下一个桶”，而是“下一条待搜索记录”流到了那个算子。
+
+对 SQL 递归，差别更明显。Volcano 的算子树本身不能有环：如果子节点沿树指回父节点，`next()` 调用就会无限嵌套。因此 Recursive Union 的 driver 必须放在树外，保存工作表、结束一轮、再重新打开递归子树。Timely 的 feedback 本来就是图中的一条数据边，新产生的 Δ 记录带着更晚的 iteration 坐标回到下一轮；相关搜索反馈的是未完成状态，递归查询反馈的是新发现的数据，使用的是同一类机制。
+
+<figure class="fig-card fig-card--dense">
+<svg class="fig-svg" viewBox="0 0 760 490" role="img" aria-label="左侧火山模型中控制流沿调用栈驱动相关子查询和递归工作表，driver 在树外循环；右侧 Timely 中不同 iteration 的记录沿数据流图触发算子，同时各 worker 持续汇报进度并推动 frontier">
+<defs>
+<marker id="model-orange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#9a3412"/></marker>
+<marker id="model-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#0f766e"/></marker>
+</defs>
+<text x="30" y="32" class="t-title">Volcano / control flow</text>
+<text x="414" y="32" class="t-title" fill="#0f766e">Timely / data flow</text>
+<line x1="380" y1="20" x2="380" y2="458" stroke="#e8e0d4" stroke-dasharray="2 4"/>
+<g>
+<rect x="90" y="56" width="180" height="42" rx="10" fill="#ffedd5" stroke="#9a3412" stroke-width="1.5"/><text x="180" y="82" text-anchor="middle" class="t-label" font-weight="600">Project</text>
+<rect x="90" y="128" width="180" height="42" rx="10" fill="#fff4ed" stroke="#9a3412" stroke-width="1.5"/><text x="180" y="154" text-anchor="middle" class="t-label">Correlate / Recursive Union</text>
+<rect x="90" y="200" width="180" height="42" rx="10" fill="#ffffff" stroke="#57534e"/><text x="180" y="226" text-anchor="middle" class="t-label">Sort + Limit / work table</text>
+<line x1="180" y1="98" x2="180" y2="124" stroke="#9a3412" stroke-width="2.2" marker-end="url(#model-orange)"/>
+<line x1="180" y1="170" x2="180" y2="196" stroke="#9a3412" stroke-width="2.2" marker-end="url(#model-orange)"/>
+<circle cx="64" cy="116" r="11" fill="#ffedd5" stroke="#9a3412"/><text x="64" y="120" text-anchor="middle" class="t-micro" fill="#9a3412">1</text>
+<text x="82" y="120" class="t-micro" fill="#9a3412">next()</text>
+<circle cx="64" cy="188" r="11" fill="#ffedd5" stroke="#9a3412"/><text x="64" y="192" text-anchor="middle" class="t-micro" fill="#9a3412">2</text>
+<text x="82" y="192" class="t-micro" fill="#9a3412">bind cutoff</text>
+<path d="M 278 220 C 342 252, 334 82, 270 78" stroke="#9a3412" stroke-width="2.2" stroke-dasharray="7 5" fill="none" marker-end="url(#model-orange)"/>
+<circle cx="308" cy="112" r="11" fill="#ffedd5" stroke="#9a3412"/><text x="308" y="116" text-anchor="middle" class="t-micro" fill="#9a3412">3</text>
+<text x="318" y="144" text-anchor="middle" class="t-micro" fill="#9a3412">reopen / next round</text>
+<rect x="62" y="286" width="236" height="42" rx="10" fill="#ffedd5" stroke="#9a3412"/><text x="180" y="312" text-anchor="middle" class="t-label">driver 在树外控制“再跑一轮”</text>
+<text x="180" y="366" text-anchor="middle" class="t-sub">线程按调用栈决定下一步</text>
+<text x="180" y="446" text-anchor="middle" class="t-title">下一步调用谁？</text>
+</g>
+<g>
+<rect x="414" y="64" width="96" height="38" rx="10" fill="#f0fdfa" stroke="#0f766e" stroke-width="1.5"/><text x="462" y="88" text-anchor="middle" class="t-label">enter / Δ</text>
+<rect x="548" y="64" width="118" height="38" rx="10" fill="#ffffff" stroke="#57534e"/><text x="607" y="88" text-anchor="middle" class="t-label">probe / join</text>
+<rect x="548" y="152" width="118" height="38" rx="10" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="607" y="176" text-anchor="middle" class="t-label">output / distinct</text>
+<rect x="414" y="152" width="96" height="38" rx="10" fill="#f0fdfa" stroke="#0f766e" stroke-width="1.5"/><text x="462" y="176" text-anchor="middle" class="t-label">feedback</text>
+<line x1="510" y1="83" x2="544" y2="83" stroke="#0f766e" stroke-width="2.2" marker-end="url(#model-teal)"/>
+<line x1="607" y1="102" x2="607" y2="148" stroke="#0f766e" stroke-width="2.2" marker-end="url(#model-teal)"/>
+<line x1="548" y1="171" x2="514" y2="171" stroke="#0f766e" stroke-width="2.2" marker-end="url(#model-teal)"/>
+<path d="M 462 152 C 448 124, 452 104, 462 102" stroke="#0f766e" stroke-width="2.2" stroke-dasharray="6 5" fill="none" marker-end="url(#model-teal)"/>
+<text x="536" y="126" text-anchor="middle" class="t-micro" fill="#0f766e">未完成状态</text>
+<g>
+<rect x="674" y="58" width="44" height="24" rx="12" fill="#ccfbf1" stroke="#0f766e"/><text x="696" y="74" text-anchor="middle" class="t-micro">(e,0)</text>
+<rect x="674" y="106" width="44" height="24" rx="12" fill="#ffffff" stroke="#a8a29e"/><text x="696" y="122" text-anchor="middle" class="t-micro">(e,1)</text>
+<rect x="674" y="154" width="44" height="24" rx="12" fill="#ccfbf1" stroke="#0f766e"/><text x="696" y="170" text-anchor="middle" class="t-micro">(e,2)</text>
+</g>
+<rect x="430" y="224" width="272" height="42" rx="10" fill="#f0fdfa" stroke="#0f766e"/><text x="566" y="250" text-anchor="middle" class="t-label">记录到达哪个算子，哪个算子就工作</text>
+<rect x="408" y="288" width="316" height="112" rx="12" fill="#ffffff" stroke="#e8e0d4"/>
+<text x="426" y="310" class="t-label" fill="#0f766e" font-weight="600">progress tracker 持续计算 frontier</text>
+<text x="426" y="328" class="t-micro">数据面处理记录；进度面同时汇总 capability 与在途消息</text>
+<line x1="438" y1="360" x2="694" y2="360" stroke="#d6d3d1" stroke-width="1.5"/>
+<circle cx="458" cy="360" r="7" fill="#ccfbf1" stroke="#0f766e"/><text x="458" y="383" text-anchor="middle" class="t-micro">(e,0) 封闭</text>
+<circle cx="558" cy="360" r="7" fill="#0f766e"/><text x="558" y="383" text-anchor="middle" class="t-micro" fill="#0f766e">frontier (e,1)</text>
+<circle cx="662" cy="360" r="7" fill="#ffffff" stroke="#a8a29e"/><text x="662" y="383" text-anchor="middle" class="t-micro">(e,2) 在途</text>
+<line x1="558" y1="340" x2="558" y2="372" stroke="#0f766e" stroke-width="2" stroke-dasharray="5 4"/>
+<path d="M 570 344 C 592 330, 620 330, 642 344" stroke="#0f766e" stroke-width="1.5" fill="none" marker-end="url(#model-teal)"/>
+<text x="606" y="342" text-anchor="middle" class="t-micro" fill="#0f766e">消息完成就继续推进</text>
+<text x="566" y="446" text-anchor="middle" class="t-title" fill="#0f766e">这条数据变成什么、流向哪里？</text>
+</g>
+</svg>
+<figcaption class="fig-caption">火山模型用调用顺序驱动数据：driver 决定何时绑定参数、何时重开子树。Timely 用数据驱动计算：不同 iteration 的记录在图中同时流动，算子处理数据的同时，progress tracker 持续汇总 capability 与在途消息并推进 frontier。相关搜索和 SQL 递归都可以使用同一条 feedback 数据边。</figcaption>
+</figure>
+
+| 维度 | 火山模型 | Timely Dataflow |
+|---|---|---|
+| 驱动力 | 上层算子调用下层 `next()` | 记录或更新到达算子 |
+| 工作单元 | 一次调用、一棵子树、一轮工作表 | 一条记录、一个搜索状态、一次增量 |
+| 相关 Top-1 | 外层行绑定参数，驱动内层 Sort + Limit | 外层行进入 scope，未完成状态逐桶反馈 |
+| SQL 递归 | 树外 driver 物化工作表并启动下一轮 | 新 Δ 记录沿图内 feedback 返回 |
+| 完成判定 | 子树关闭、工作表为空、driver 结束 | frontier 越过相关时间点，状态和输出可定稿 |
+
+这并不意味着 Timely 没有控制：运行时仍然调度算子、管理线程、追踪 frontier。区别在于，这些控制是执行系统的基础设施，不是查询逻辑本身。火山模型把“先做什么、再做什么”写进调用关系；数据流模型把“数据如何变化”写进图，剩下的事交给数据到达来触发。
+
+图中右下角不是一次偶尔触发的“收尾检查”。每个 worker 在发送消息、消费消息、保留或释放 capability 时，都会同步更新自己的进度；这些局部更新被持续汇总成 frontier。于是数据面可能正在处理 `(e,2)` 的记录，进度面同时确认 `(e,0)` 已经封闭，并判断 `(e,1)` 之后还可能出现什么。iteration 的计算和 frontier 的计算始终并行发生，系统不需要停下数据流，再专门组织一次全局检查。
+
+<div class="callout callout--insight">
+<p><strong>归因</strong>：控制流告诉线程“下一步调用谁”，数据流声明“这条数据变成什么、流向哪里”。前者把计算组织成一次调用；后者把计算组织成一组持续存在、对数据变化作出反应的算子。</p>
+</div>
+
+到目前为止，两种模型讨论的都是怎么把一批输入算完。输入一批接一批到来时，循环外面又多了一层时间边界：这一批从哪里开始、到哪里结束，正是下一节 epoch 要回答的问题。
 
 ## 5. 从一次计算到流计算
 
