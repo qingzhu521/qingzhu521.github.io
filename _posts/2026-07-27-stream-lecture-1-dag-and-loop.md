@@ -447,7 +447,7 @@ sum8(a, b, c, d, e, f, g, h)
 
 ### 4.2 逻辑时间：把时间记在数据里
 
-Timely Dataflow 做了相反的选择：不设全局屏障，让每条消息自己携带逻辑时间戳。这个决定的后果比看上去深刻——它改变了"进度"这个词的含义。我们从时间戳的结构说起。
+Timely Dataflow 做了相反的选择：不设全局屏障，每个算子收到消息就立即增量计算并继续输出。这样解决了“数据怎样持续向前流动”，却没有解决“外部什么时候可以拿到一个 epoch 的完整答案”。运行时不会打开 join、distinct 或循环算子的业务状态，替它们理解“现在是否已经算完”；它只认识算子按照进度协议公开出来的状态。即使输入端已经结束 epoch `e`，由 `e` 产生的工作仍可能缓存在算子中、飞行在网络上，或者继续沿循环回边传播。下面先看循环怎样把时间写进消息，再解释系统怎样从这些时间的进度状态确认：epoch `e` 的答案以后不会再变。
 
 #### 4.2.1 嵌套时间戳：进入循环，就加一个坐标
 
@@ -459,10 +459,10 @@ Timely 的办法是：**时间戳不是一个数，而是一个坐标序列**。
 
 写法上注意，坐标是**扁平的序列**，不是嵌套的二元组：顶层 scope 里时间戳就是 `3`；进入 iterate 后变成 `(3, 0)`；再嵌套一层循环就是 `(3, 0, 0)`。每进入一层作用域，在末尾追加一个坐标；离开时弹出。由此得到一个重要事实：**iterate 之外的算子看不到 iteration 坐标**——无论下游还接着多少算子，它们收到的时间戳只有 `3`，轮次被完整封装在作用域内部。
 
-回边在这个结构里扮演什么角色？**消息每绕回边一圈，最内层坐标加一**——`(2, 3)` 绕一圈变成 `(2, 4)`。这条规则有一个重要推论：消息沿环前进时，时间必然严格增大，不存在"时间在环上原地打转"的消息。frontier 因此在环上单调推进，循环的终止有了数学保证。
+回边在这个结构里扮演什么角色？**消息每绕回边一圈，最内层坐标加一**——`(2, 3)` 绕一圈变成 `(2, 4)`。这条规则有一个重要推论：消息沿环前进时，时间必然严格增大，不存在“时间在环上原地打转”的消息。也正因为时间沿回边严格前进，运行时之后才有可能判断：哪些旧轮次已经永远不会再出现。
 
 <figure class="fig-card">
-<svg class="fig-svg" viewBox="0 0 760 600" role="img" aria-label="逻辑视图：时间戳分层只在 iterate 内部，输入压入坐标、离开弹出，下游不可见。物理视图：三条并行泳道，戊@(3,3) 在 (3,2) 最后一条重复消息到达之前开工，各 worker 的 frontier 独立推进，不存在同步屏障">
+<svg class="fig-svg" viewBox="0 0 760 600" role="img" aria-label="逻辑视图：时间戳分层只在 iterate 内部，输入压入坐标、离开弹出，下游不可见。物理视图：三条并行泳道，戊@(3,3) 在 (3,2) 最后一条重复消息到达之前开工，各 worker 的局部进度贡献持续汇总，不存在同步屏障">
 <defs>
 <marker id="ph-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#0f766e"/></marker>
 <marker id="ph-gray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#57534e"/></marker>
@@ -581,68 +581,336 @@ Timely 的办法是：**时间戳不是一个数，而是一个坐标序列**。
 <line x1="468" y1="460" x2="468" y2="490"/>
 <line x1="430" y1="512" x2="430" y2="542"/>
 </g>
-<text x="380" y="564" text-anchor="middle" class="t-sub">箭头：消息到达即触发下一条计算；frontier（紫色）随完成持续右移——阴影区已封闭、可定稿，三个 worker 互不对齐</text>
+<text x="380" y="564" text-anchor="middle" class="t-sub">箭头：消息到达即触发计算；紫色表示各 worker 的局部进度贡献——互不对齐，持续汇总</text>
 <g class="t-sub" fill="#57534e">
 <rect x="60" y="580" width="10" height="10" fill="#0f766e"/><text x="76" y="589">新结果立即流动</text>
 <rect x="192" y="580" width="10" height="10" fill="#fee2e2" stroke="#b91c1c" stroke-dasharray="2 2"/><text x="208" y="589">重复就地吸收</text>
-<line x1="328" y1="580" x2="328" y2="590" stroke="#6d28d9" stroke-width="2" stroke-dasharray="3 2"/><text x="336" y="589">frontier（持续推进）</text>
+<line x1="328" y1="580" x2="328" y2="590" stroke="#6d28d9" stroke-width="2" stroke-dasharray="3 2"/><text x="336" y="589">局部进度贡献</text>
 <line x1="456" y1="580" x2="476" y2="580" stroke="#9a3412" stroke-width="2" stroke-dasharray="5 3"/><text x="484" y="589">BSP 屏障（不存在）</text>
 </g>
 </svg>
-<figcaption class="fig-caption">逻辑视图：时间戳的分层只存在于 iterate scope 内部——输入为 t=3，进入时压入坐标变成 (3,0)，内部按 (3,0)…(3,3) 分阶段（每层标出真实数据），离开时弹出坐标，下游算子只见 t=3。物理视图：同一批消息分布在三个 worker 上按物理时间并行处理——每条消息到达即触发下一条计算（细箭头；红色虚线是产生重复消息的触发），戊@(3,3) 在 (3,2) 的最后一条重复消息到达之前就已开工；frontier（紫色）随每条消息完成而持续右移，阴影区是已封闭、可定稿的时间，三个 worker 的位置互不对齐；橙色虚线是 BSP 会设置的屏障位置，这张图里不存在。逻辑分层是语义，物理不分层、轮次可重叠是执行。</figcaption>
+<figcaption class="fig-caption">逻辑视图：时间戳的分层只存在于 iterate scope 内部——输入为 t=3，进入时压入坐标变成 (3,0)，内部按 (3,0)…(3,3) 分阶段（每层标出真实数据），离开时弹出坐标，下游算子只见 t=3。物理视图：同一批消息分布在三个 worker 上按物理时间并行处理——每条消息到达即触发下一条计算（细箭头；红色虚线是产生重复消息的触发），戊@(3,3) 在 (3,2) 的最后一条重复消息到达之前就已开工；紫色标记表示各 worker 提交的局部进度计数，它们持续汇总，却不要求 worker 在物理时间上对齐。橙色虚线是 BSP 会设置的屏障位置，这张图里不存在。下一节再解释这些计数如何变成可靠的完成判定。</figcaption>
 </figure>
 
-#### 4.2.2 偏序：允许"不可比"的时间点
+#### 4.2.2 输入结束不等于答案完成：系统如何感知 epoch 已完成
 
-两个时间戳怎么比大小？规则是逐坐标比较，**全部坐标都不落后才算更小**：`(1, 3) ≤ (2, 4)`，因为 1≤2 且 3≤4。那 `(1, 3)` 和 `(2, 1)` 呢？第 1 批的第 3 轮，第 2 批的第 1 轮——第一个坐标落后，第二个坐标超前，**不可比**。
+假设 source 已经宣布：epoch <code>e</code> 的输入全部发送完毕。这句话只关闭了**外部输入**，并没有关闭由它派生出来的内部工作。某条 <code>e</code> 的消息可能刚进入 join；join 可能把结果发给下一算子；下一算子又可能把结果送回循环。每个算子都在正常地增量计算，但没有任何一个瞬间能让运行时仅凭“当前队列为空”断言整个 epoch 已经结束。
 
-"不可比"不是缺陷，而是整个设计的关键。如果强迫所有时间点排出全局先后（例如改用字典序），系统就必须在批与批之间建立不必要的等待：第 2 批的第 1 轮"排在"第 1 批的第 3 轮后面，就得等它。偏序允许系统说"这两个时间没有先后"——它们的消息并行流动，谁也不等谁。同步轮次里"所有人等齐再走"的约束，被精确地缩小到了真正有依赖的地方。
+而用户真正需要的是另一条承诺：**这个 epoch 的所有影响已经传播完，当前看到的答案以后不会再改变。** Timely 不靠理解算子内部的业务状态得到这条承诺，而是让所有消息和未来发送权都携带逻辑时间，再从时间的进度状态推导答案是否完整。准确地说，**答案内容由算子增量算出；时间进度不负责计算答案，只负责证明当前答案已经完整。**
 
-frontier 就建立在偏序上。它不是一个时间点，而是**一组两两不可比的时间点**，含义是：未来消息的时间戳只会大于等于 frontier 中的某一个，绝不可能更小。把两个坐标画成网格，frontier 是一条向右下推进的阶梯线：
+先用单个整数时间建立直觉。若某个输入端口的 frontier 已推进到 <code>{f}</code>，就表示这个端口以后只可能收到时间不早于 <code>f</code> 的消息，因此所有 <code>t &lt; f</code> 的输入都已关闭。算子在这些时间上的结果可能早已作为增量向下游流动；frontier 到达 <code>f</code> 并不是此刻才产生结果，而是把“当前结果”升级成一条完成保证：时间 <code>t</code> 的答案已经完整，相关状态可以回收。
+
+只有一个整数时，“早于 <code>f</code>”很好判断。进入二重循环后，时间变成多个坐标，可能出现互不可比的进展方向。为了把同一条完成保证推广到这种情况，运行时才需要比较时间。它要回答的不是“哪条日志先发生”，而是一个与答案完整性直接相关的问题：
+
+> **某项尚未结束的工作，沿数据流继续执行后，还可能影响目标端口上的时间 <code>t</code> 吗？**
+
+在普通直线数据流里，一个整数时间大多够用；在二重循环里，答案取决于工作绕过哪一层回边。设时间写成 <code>(e, o, i)</code>：<code>e</code> 是输入 epoch，<code>o</code> 是外层轮次，<code>i</code> 是内层轮次。进入一层循环就追加一个零，绕该层反馈边就把对应坐标加一，离开该层则弹掉最后一个坐标。
 
 <figure class="fig-card">
-<svg class="fig-svg" viewBox="0 0 720 280" role="img" aria-label="epoch 与 iteration 组成的网格：frontier 是一条阶梯形下界，左下方已封闭，右上方还可能到来，(1,3) 与 (2,1) 不可比">
-<g>
-<rect x="100" y="95" width="60" height="135" fill="#ede9fe" opacity="0.55"/>
-<rect x="100" y="185" width="120" height="45" fill="#ede9fe" opacity="0.55"/>
-<rect x="100" y="222" width="240" height="8" fill="#ede9fe" opacity="0.55"/>
-</g>
-<g fill="#d6d3d1">
-<circle cx="100" cy="230" r="2.5"/><circle cx="160" cy="230" r="2.5"/><circle cx="220" cy="230" r="2.5"/><circle cx="280" cy="230" r="2.5"/><circle cx="340" cy="230" r="2.5"/>
-<circle cx="100" cy="185" r="2.5"/><circle cx="160" cy="185" r="2.5"/><circle cx="220" cy="185" r="2.5"/><circle cx="280" cy="185" r="2.5"/><circle cx="340" cy="185" r="2.5"/>
-<circle cx="100" cy="140" r="2.5"/><circle cx="160" cy="140" r="2.5"/><circle cx="220" cy="140" r="2.5"/><circle cx="280" cy="140" r="2.5"/><circle cx="340" cy="140" r="2.5"/>
-<circle cx="100" cy="95" r="2.5"/><circle cx="160" cy="95" r="2.5"/><circle cx="220" cy="95" r="2.5"/><circle cx="280" cy="95" r="2.5"/><circle cx="340" cy="95" r="2.5"/>
-<circle cx="100" cy="50" r="2.5"/><circle cx="160" cy="50" r="2.5"/><circle cx="220" cy="50" r="2.5"/><circle cx="280" cy="50" r="2.5"/><circle cx="340" cy="50" r="2.5"/>
-</g>
-<g stroke="#57534e" stroke-width="1.2" fill="none">
-<line x1="92" y1="230" x2="364" y2="230"/><line x1="100" y1="238" x2="100" y2="42"/>
-</g>
-<text x="372" y="234" class="t-sub">epoch →</text>
-<text x="58" y="52" class="t-sub">iteration ↑</text>
-<path d="M 100 95 L 160 95 L 160 185 L 220 185 L 220 230 L 340 230" stroke="#6d28d9" stroke-width="2.2" stroke-dasharray="7 5" fill="none"/>
-<g fill="#6d28d9">
-<circle cx="160" cy="95" r="5"/><circle cx="220" cy="185" r="5"/><circle cx="340" cy="230" r="5"/>
-</g>
-<g class="t-micro" fill="#6d28d9" font-weight="700">
-<text x="172" y="90">(1, 3)</text><text x="232" y="180">(2, 1)</text><text x="318" y="214">(4, 0)</text>
-</g>
-<g>
-<text x="430" y="60" class="t-title">怎么读这张图</text>
-<rect x="430" y="78" width="14" height="14" fill="#ede9fe" stroke="#6d28d9" stroke-width="0.8"/><text x="452" y="90" class="t-sub">左下阴影：已封闭，可放心输出、回收状态</text>
-<line x1="430" y1="116" x2="444" y2="116" stroke="#6d28d9" stroke-width="2.2" stroke-dasharray="4 3"/><text x="452" y="120" class="t-sub">frontier：一组不可比的时间点（阶梯线）</text>
-<text x="452" y="150" class="t-sub">右上方：消息还可能到来</text>
-<text x="452" y="180" class="t-sub">(1, 3) 与 (2, 1)：不可比，互不等待</text>
-<text x="452" y="210" class="t-sub">算子只需盯住阶梯线，无需全局视图</text>
-</g>
+<svg class="fig-svg" viewBox="0 0 800 575" role="img" aria-label="二重循环中的时间变换：输入 epoch 进入外层追加 outer 坐标，进入内层追加 inner 坐标；内层和外层各有自己的 feedback 与 leave 算子">
+<defs>
+<marker id="nested-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#0f766e"/></marker>
+<marker id="nested-gray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#57534e"/></marker>
+</defs>
+<text x="28" y="28" class="t-title">一个二重循环：坐标由走过的 scope 边界决定</text>
+<rect x="28" y="46" width="744" height="500" rx="16" fill="#fafaf9" stroke="#57534e" stroke-width="1.2" stroke-dasharray="7 5"/>
+<text x="45" y="70" class="t-sub" fill="#57534e" font-weight="700">外层 iterate scope</text>
+
+<rect x="48" y="88" width="96" height="48" rx="9" fill="#ffffff" stroke="#57534e" stroke-width="1.2"/>
+<text x="96" y="109" text-anchor="middle" class="t-label">输入</text>
+<text x="96" y="127" text-anchor="middle" class="t-micro">@ e</text>
+
+<rect x="170" y="82" width="120" height="60" rx="10" fill="#ffffff" stroke="#57534e" stroke-width="1.3"/>
+<text x="230" y="105" text-anchor="middle" class="t-label">enter_outer</text>
+<text x="230" y="126" text-anchor="middle" class="t-micro">e → (e, 0)</text>
+
+<rect x="320" y="82" width="112" height="60" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+<text x="376" y="105" text-anchor="middle" class="t-label" fill="#6d28d9">外层入口 O</text>
+<text x="376" y="126" text-anchor="middle" class="t-micro">(e, o)</text>
+
+<line x1="144" y1="112" x2="166" y2="112" stroke="#57534e" stroke-width="1.8" marker-end="url(#nested-gray)"/>
+<line x1="290" y1="112" x2="316" y2="112" stroke="#57534e" stroke-width="1.8" marker-end="url(#nested-gray)"/>
+
+<rect x="168" y="170" width="568" height="224" rx="14" fill="#f0fdfa" stroke="#0f766e" stroke-width="1.3" stroke-dasharray="6 5"/>
+<text x="186" y="194" class="t-sub" fill="#0f766e" font-weight="700">内层 iterate scope</text>
+
+<rect x="192" y="218" width="124" height="62" rx="10" fill="#ffffff" stroke="#0f766e" stroke-width="1.3"/>
+<text x="254" y="242" text-anchor="middle" class="t-label">enter_inner</text>
+<text x="254" y="263" text-anchor="middle" class="t-micro">(e, o) → (e, o, 0)</text>
+
+<rect x="344" y="218" width="104" height="62" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.6"/>
+<text x="396" y="242" text-anchor="middle" class="t-label" fill="#6d28d9">内层入口 P</text>
+<text x="396" y="263" text-anchor="middle" class="t-micro">(e, o, i)</text>
+
+<rect x="492" y="218" width="164" height="62" rx="10" fill="#ffffff" stroke="#0f766e" stroke-width="1.4"/>
+<text x="574" y="242" text-anchor="middle" class="t-label">inner body / result</text>
+<text x="574" y="263" text-anchor="middle" class="t-micro">产生差分或不再产生</text>
+
+<line x1="316" y1="249" x2="340" y2="249" stroke="#0f766e" stroke-width="2" marker-end="url(#nested-teal)"/>
+<line x1="448" y1="249" x2="488" y2="249" stroke="#0f766e" stroke-width="2" marker-end="url(#nested-teal)"/>
+<path d="M 544 280 L 544 306 L 396 306 L 396 284" fill="none" stroke="#0f766e" stroke-width="2.2" marker-end="url(#nested-teal)"/>
+<text x="470" y="326" text-anchor="middle" class="t-micro" fill="#0f766e">inner feedback：(e, o, i) → (e, o, i + 1)</text>
+
+<rect x="492" y="338" width="164" height="42" rx="9" fill="#ffffff" stroke="#57534e" stroke-width="1.3"/>
+<text x="574" y="356" text-anchor="middle" class="t-label">leave_inner</text>
+<text x="574" y="373" text-anchor="middle" class="t-micro">(e, o, i) → (e, o)</text>
+<line x1="618" y1="280" x2="618" y2="334" stroke="#57534e" stroke-width="1.8" marker-end="url(#nested-gray)"/>
+
+<path d="M 376 146 L 376 176 L 254 176 L 254 214" fill="none" stroke="#0f766e" stroke-width="2" marker-end="url(#nested-teal)"/>
+
+<rect x="482" y="430" width="148" height="60" rx="10" fill="#ffffff" stroke="#0f766e" stroke-width="1.4"/>
+<text x="556" y="453" text-anchor="middle" class="t-label">outer body / result</text>
+<text x="556" y="474" text-anchor="middle" class="t-micro">@ (e, o)</text>
+<line x1="574" y1="380" x2="574" y2="426" stroke="#0f766e" stroke-width="2" marker-end="url(#nested-teal)"/>
+
+<rect x="660" y="430" width="92" height="60" rx="10" fill="#ffffff" stroke="#57534e" stroke-width="1.3"/>
+<text x="706" y="453" text-anchor="middle" class="t-label">leave_outer</text>
+<text x="706" y="474" text-anchor="middle" class="t-micro">(e, o) → e</text>
+<line x1="630" y1="460" x2="656" y2="460" stroke="#57534e" stroke-width="1.8" marker-end="url(#nested-gray)"/>
+<text x="706" y="514" text-anchor="middle" class="t-micro">输出 @e</text>
+
+<path d="M 530 490 L 530 520 L 456 520 L 456 154 L 376 154 L 376 146" fill="none" stroke="#0f766e" stroke-width="2.2" marker-end="url(#nested-teal)"/>
+<text x="292" y="523" class="t-micro" fill="#0f766e">outer feedback：(e, o) → (e, o + 1)</text>
 </svg>
-<figcaption class="fig-caption">frontier 是偏序上的一条阶梯形下界：左下方封闭、右上方待定。两个 frontier 点 (1,3) 与 (2,1) 不可比——它们的消息可以并行流动，这正是轮次重叠的几何含义。</figcaption>
+<figcaption class="fig-caption">数据离开循环必须经过独立的 <code>leave_inner</code> 或 <code>leave_outer</code>，不会从入口“倒着出去”。内层回边只增加 <code>i</code>，外层回边先弹出 <code>i</code>、增加 <code>o</code>，再次进入内层时再追加新的 <code>i=0</code>。</figcaption>
 </figure>
 
-阶梯左下方的区域已经"封闭"：时间戳落在那里的消息不可能再来，算子可以放心输出这些轮次的结果、回收这些轮次的状态。注意 frontier 说的是"不会再有"，而不是"已经算完"——算子不需要知道全局发生了什么，只要盯住这条下界线，就能独立做出安全的决定。
+现在沿图跟一项工作走一遍。内层结果位于 <code>(1, 2, 4)</code>，若它结束本次内层循环、参加下一轮外层循环，再次进入内层入口 P，时间会依次变成：
 
-这套机制的适用范围也值得记住：Naiad 对时间戳只有一个最低要求——**构成偏序，并且沿回边严格递增**。任何满足这两条的时间体系，都能套用同一套进度追踪协议。
+<pre><code>(1, 2, 4) --leave_inner--> (1, 2)
+          --outer feedback--> (1, 3)
+          --enter_inner-----> (1, 3, 0) @ P</code></pre>
 
-#### 4.2.3 iterate 算子：把回边封装成一次函数调用
+因此，不同位置上的原始时间不能直接比较。运行时先把未完成工作的时间沿路径换算到**同一个目标端口**，再判断它是否可能影响目标时间。
+
+在同一个端口、同一种三坐标时间里，Timely 使用逐坐标偏序：
+
+<pre><code>(e₁, o₁, i₁) ≤ (e₂, o₂, i₂)
+当且仅当 e₁≤e₂、o₁≤o₂、i₁≤i₂</code></pre>
+
+这个“≤”可以读成：左边尚未结束的工作还没有越过右边，因而不能排除它继续影响右边。反过来，<code>(1, 3, 1)</code> 与 <code>(2, 1, 4)</code> 一个外层轮次更大、另一个 epoch 和内层轮次更大，谁也不小于谁。它们代表两个互不支配的进展方向；强行排成先后只会制造无关等待。
+
+到这里我们只解决了“怎样判断一项工作会不会影响目标时间”。还缺最后一块：运行时怎样知道这些尚未结束的工作确实存在，以及怎样把大量工作压缩成算子能使用的完成边界。
+
+#### 4.2.3 Capability 记录“还能产生”，frontier 汇总“最早还能到哪”
+
+先看为什么只数消息不够。算子收到输入后，可能先把它放进状态，过一会儿才输出；那一刻网络里甚至可以一条消息都没有。Timely 必须把“算子以后仍有权输出”也纳入进度追踪，这份可追踪的发送权就是 **capability**。
+
+把 capability 写成 <code>cap@t</code>。算子在某个输出端持有 <code>cap@t</code>，表示它仍可在该输出发送时间不早于 <code>t</code> 的消息。它可以把 capability 降级到更晚的时间，也可以释放；不能把它移回更早的时间。消息发出后到被下游消费以前，**在途消息**本身也是一份尚未结清的未来工作。两者缺一不可：只看消息会漏掉缓存后的未来输出，只看 capability 又会漏掉已经发出、仍在路上的数据。
+
+**frontier 到底怎样“传播”？** 严格地说，frontier 本身并不沿数据边传递。Timely 传播的是一笔笔 **pointstamp 计数变化**：pointstamp 是“数据流位置 + 逻辑时间”，计数变化写成 <code>+1</code> 或 <code>-1</code>。
+
+- 算子在输出端持有 <code>cap@t</code>，就在该输出位置为时间 <code>t</code> 提供一份正计数；降级 capability 相当于旧时间 <code>-1</code>、新时间 <code>+1</code>，释放则只有 <code>-1</code>；
+- 算子发送一条 <code>msg@t</code>，下游输入位置增加一份消息计数；下游真正消费它以后，再减掉这份计数；
+- 每个 worker 先产生本地计数变化。会影响可见进度的变化通过进度通道在 worker 之间交换、求和，因此任何一台 worker 都不会因为“自己这里已经空了”而提前推进。
+
+运行时随后把这些计数变化沿图传播。经过普通边，位置改变、时间不变；经过 feedback、<code>enter</code> 或 <code>leave</code>，则先用该路径的时间摘要变换时间。变化到达某个输入端口后，这个端口重新维护所有正计数时间中的最小反链；**重新算出的反链才是该端口的新 frontier。** 若 frontier 确实发生变化，运行时会把变化交给关注进度的算子。
+
+<figure class="fig-card" id="frontier-propagation">
+<svg class="fig-svg" viewBox="0 0 760 470" role="img" aria-label="frontier 不直接沿数据边传递。capability 和消息的产生、消费形成带位置与时间的计数增减，跨 worker 汇总后沿路径摘要传播，目标端口从正计数时间的最小反链重新计算 frontier。">
+<defs>
+<marker id="prop-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#0f766e"/></marker>
+<marker id="prop-purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#6d28d9"/></marker>
+<marker id="prop-gray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#57534e"/></marker>
+</defs>
+<text x="28" y="28" class="t-title">frontier 不是复制给下游，而是在每个位置重新算出来</text>
+
+<text x="42" y="62" class="t-sub" font-weight="700">数据面：消息正常流动</text>
+<rect x="42" y="78" width="142" height="58" rx="10" fill="#ffffff" stroke="#0f766e" stroke-width="1.3"/>
+<text x="113" y="101" text-anchor="middle" class="t-label">算子 A · output</text>
+<text x="113" y="122" text-anchor="middle" class="t-micro">持有 cap@5</text>
+<rect x="298" y="78" width="142" height="58" rx="10" fill="#ffffff" stroke="#0f766e" stroke-width="1.3"/>
+<text x="369" y="101" text-anchor="middle" class="t-label">网络中的 msg@5</text>
+<text x="369" y="122" text-anchor="middle" class="t-micro">尚未被消费</text>
+<rect x="554" y="78" width="164" height="58" rx="10" fill="#ffffff" stroke="#0f766e" stroke-width="1.3"/>
+<text x="636" y="101" text-anchor="middle" class="t-label">算子 B · input</text>
+<text x="636" y="122" text-anchor="middle" class="t-micro">收到后增量计算</text>
+<line x1="184" y1="107" x2="294" y2="107" stroke="#0f766e" stroke-width="2" marker-end="url(#prop-teal)"/>
+<line x1="440" y1="107" x2="550" y2="107" stroke="#0f766e" stroke-width="2" marker-end="url(#prop-teal)"/>
+
+<line x1="24" y1="158" x2="736" y2="158" stroke="#e7e5e4"/>
+<text x="42" y="184" class="t-sub" font-weight="700">进度面：传播的是 (位置, 时间, 计数变化)</text>
+
+<rect x="42" y="202" width="170" height="100" rx="11" fill="#fafaf9" stroke="#57534e" stroke-width="1.2"/>
+<text x="58" y="226" class="t-label">本地进度证据</text>
+<text x="58" y="250" class="t-micro">A.out：cap@5　+1 / -1</text>
+<text x="58" y="272" class="t-micro">B.in：msg@5　+1 / -1</text>
+<text x="58" y="292" class="t-micro">只上报增量，不发送整个 frontier</text>
+
+<rect x="250" y="202" width="164" height="100" rx="11" fill="#f0fdfa" stroke="#0f766e" stroke-width="1.2"/>
+<text x="332" y="226" text-anchor="middle" class="t-label">跨 worker 汇总</text>
+<text x="332" y="252" text-anchor="middle" class="t-micro">交换 pointstamp delta</text>
+<text x="332" y="274" text-anchor="middle" class="t-micro">同一 (位置, 时间) 求和</text>
+<text x="332" y="294" text-anchor="middle" class="t-micro">不是屏障，数据无需停下</text>
+
+<rect x="452" y="202" width="126" height="100" rx="11" fill="#ffffff" stroke="#57534e" stroke-width="1.2"/>
+<text x="515" y="226" text-anchor="middle" class="t-label">沿图投影</text>
+<text x="515" y="252" text-anchor="middle" class="t-micro">普通边：t → t</text>
+<text x="515" y="274" text-anchor="middle" class="t-micro">feedback：t → t+1</text>
+<text x="515" y="294" text-anchor="middle" class="t-micro">enter / leave：压入 / 弹出</text>
+
+<rect x="616" y="202" width="102" height="100" rx="11" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.3"/>
+<text x="667" y="226" text-anchor="middle" class="t-label" fill="#6d28d9">目标端口</text>
+<text x="667" y="252" text-anchor="middle" class="t-micro">保留正计数</text>
+<text x="667" y="274" text-anchor="middle" class="t-micro">取最小反链</text>
+<text x="667" y="294" text-anchor="middle" class="t-label" fill="#6d28d9">得到 frontier</text>
+
+<line x1="212" y1="252" x2="246" y2="252" stroke="#57534e" stroke-width="1.8" marker-end="url(#prop-gray)"/>
+<line x1="414" y1="252" x2="448" y2="252" stroke="#57534e" stroke-width="1.8" marker-end="url(#prop-gray)"/>
+<line x1="578" y1="252" x2="612" y2="252" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#prop-purple)"/>
+
+<text x="42" y="338" class="t-sub" font-weight="700">为什么释放 capability 后 frontier 还可能不动</text>
+<rect x="42" y="354" width="208" height="74" rx="10" fill="#ffffff" stroke="#e7e5e4" stroke-width="1.2"/>
+<text x="146" y="380" text-anchor="middle" class="t-label">① cap@5 +1</text>
+<text x="146" y="406" text-anchor="middle" class="t-micro">A 仍可能发送，frontier 被 5 支撑</text>
+<rect x="276" y="354" width="208" height="74" rx="10" fill="#ffffff" stroke="#e7e5e4" stroke-width="1.2"/>
+<text x="380" y="380" text-anchor="middle" class="t-label">② 发送 msg@5；随后释放 cap</text>
+<text x="380" y="406" text-anchor="middle" class="t-micro">消息仍在途，5 的正计数仍未归零</text>
+<rect x="510" y="354" width="208" height="74" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/>
+<text x="614" y="380" text-anchor="middle" class="t-label" fill="#6d28d9">③ B 消费最后一条 msg@5</text>
+<text x="614" y="406" text-anchor="middle" class="t-micro">5 的计数归零，frontier 才能推进</text>
+<line x1="250" y1="391" x2="272" y2="391" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#prop-purple)"/>
+<line x1="484" y1="391" x2="506" y2="391" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#prop-purple)"/>
+</svg>
+<figcaption class="fig-caption">数据边传递记录，进度通道传递 pointstamp 的计数增减。Timely 在 <code>SharedProgress</code> 中分别收集 consumed、internal capability 和 produced 的变化，由 <code>Progcaster</code> 在 worker 间交换，再由 reachability tracker 按算子内部连接、数据边和时间路径摘要传播。每个端口的 <code>MutableAntichain</code> 最后从正计数时间重建最小反链。</figcaption>
+</figure>
+
+用一条消息把这张图串起来：A 持有 <code>cap@5</code> 时，B 的未来仍受时间 5 约束；A 发送 <code>msg@5</code> 后即使立即释放 capability，约束也不会消失，因为消息的正计数已经转移到 B 的输入位置。直到 B 消费最后一条 <code>msg@5</code>，并且没有其他 capability 或消息继续支撑时间 5，该位置的计数才归零，B 的 frontier 才会推进。
+
+继续使用上面的二重循环，观察内层入口 P。假设有两份未来工作的证据：
+
+- A：<code>leave_inner</code> 之后的外层继续分支持有 <code>cap@(1, 2)</code>。沿 <code>outer feedback → enter_inner</code> 投影到 P，候选时间是 <code>(1, 3, 0)</code>；
+- B：专门通向内层回边的分支持有 <code>cap@(1, 3, 0)</code>。沿 inner feedback 投影到 P，候选时间是 <code>(1, 3, 1)</code>。
+
+<figure class="fig-card">
+<svg class="fig-svg" viewBox="0 0 800 330" role="img" aria-label="capability 和在途消息先沿路径投影成内层入口 P 的候选时间，最小候选构成 frontier；支撑最早点的工作消失后 frontier 推进">
+<defs>
+<marker id="cap-purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#6d28d9"/></marker>
+<marker id="cap-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#0f766e"/></marker>
+</defs>
+<text x="28" y="28" class="t-title">从未来工作的证据，到 P 的完成边界</text>
+
+<rect x="28" y="52" width="220" height="162" rx="13" fill="#fafaf9" stroke="#57534e" stroke-width="1.2"/>
+<text x="46" y="78" class="t-title">1　未来工作的证据</text>
+<text x="46" y="108" class="t-label" fill="#6d28d9">A　外层分支 cap@(1, 2)</text>
+<text x="46" y="130" class="t-micro">走 outer feedback 后还能到 P</text>
+<text x="46" y="162" class="t-label" fill="#6d28d9">B　cap@(1, 3, 0)</text>
+<text x="46" y="184" class="t-micro">走内层 feedback 后还能到 P</text>
+<text x="46" y="204" class="t-micro">在途消息也按同样方式计数</text>
+
+<rect x="290" y="52" width="220" height="162" rx="13" fill="#f0fdfa" stroke="#0f766e" stroke-width="1.3"/>
+<text x="308" y="78" class="t-title" fill="#0f766e">2　沿路径投影到 P</text>
+<text x="308" y="112" class="t-label">A → (1, 3, 0)　×1</text>
+<text x="308" y="146" class="t-label">B → (1, 3, 1)　×1</text>
+<text x="308" y="184" class="t-micro">候选时间带计数；同一点可有多份支撑</text>
+
+<rect x="552" y="52" width="220" height="162" rx="13" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.4"/>
+<text x="570" y="78" class="t-title" fill="#6d28d9">3　只保留最小候选</text>
+<text x="662" y="126" text-anchor="middle" class="t-title" fill="#6d28d9">frontier(P)</text>
+<text x="662" y="158" text-anchor="middle" class="t-title">{(1, 3, 0)}</text>
+<text x="662" y="190" text-anchor="middle" class="t-micro">(1, 3, 1) 被更早的点覆盖</text>
+
+<line x1="248" y1="133" x2="286" y2="133" stroke="#0f766e" stroke-width="2" marker-end="url(#cap-teal)"/>
+<line x1="510" y1="133" x2="548" y2="133" stroke="#6d28d9" stroke-width="2" marker-end="url(#cap-purple)"/>
+
+<rect x="28" y="250" width="744" height="66" rx="12" fill="#ffffff" stroke="#e7e5e4" stroke-width="1.2"/>
+<text x="48" y="276" class="t-label">A 被释放，且 A 产生的在途消息全部消费</text>
+<text x="355" y="276" class="t-label" fill="#0f766e">→　(1, 3, 0) 计数归零</text>
+<text x="590" y="276" class="t-label" fill="#6d28d9">→　frontier = {(1, 3, 1)}</text>
+<text x="48" y="302" class="t-micro">释放一个被覆盖的、更晚的 capability 不会推进 frontier；必须消掉支撑当前最小点的最后一份证据。</text>
+
+</svg>
+<figcaption class="fig-caption">capability 不直接“变成”一个 frontier 点。运行时先把 capability 和在途消息沿所有通向 P 的路径投影，维护候选时间的计数，再只保留偏序意义下的最小点。许多证据可以支撑同一个点，更晚且被覆盖的点不会出现在 frontier 中。</figcaption>
+</figure>
+
+可以先把 frontier 理解成输入端口的**收件进度**：
+
+> **它把时间分成两边：前面的数据已经收完，后面的数据还可能继续来。**
+
+例如 frontier 是 <code>{5}</code>，就表示时间 0 到 4 的数据已经全部收完，以后不会再来；从时间 5 开始，仍可能收到新数据。这里的“可能”不是说数据一定会来，而是运行时现在还不能保证它不会来。
+
+如果时间只是一条直线，这条进度线用一个数就能表示。二重循环却有多个前进方向，“收到哪了”可能无法用一个点说清楚。例如 <code>(1, 3, 1)</code> 与 <code>(2, 1, 4)</code> 谁也不在谁前面，两个方向都还没有收完，所以 frontier 必须同时画出这两个点。这样一组两两无法比较的边界点，才叫 **antichain（反链）**。
+
+反过来，如果两个候选时间满足 <code>a ≤ b</code>，那么 <code>a</code> 比 <code>b</code> 更靠前。frontier 里留下 <code>a</code> 就够了：只要 <code>a</code> 这个更早的方向还没有关闭，单独再列出 <code>b</code> 并不会告诉我们更多信息。
+
+先固定 epoch <code>e=1</code>，只画外层轮次 <code>o</code> 和内层轮次 <code>i</code>。下面紫色的两个点才是 antichain 的成员；灰色点虽然也是候选未来时间，但已经被更早的紫色点覆盖：
+
+<figure class="fig-card" id="frontier-antichain">
+<svg class="fig-svg" viewBox="0 0 760 450" role="img" aria-label="固定 epoch 1 后的二维偏序网格。候选时间 (1,2,1) 与 (1,3,0) 互不可比，组成 frontier 反链；更晚的候选时间被它们覆盖，不进入反链。最早点失去最后一份进度证据后，frontier 推进。">
+<defs>
+<marker id="anti-purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#6d28d9"/></marker>
+</defs>
+<text x="28" y="28" class="t-title">antichain：只保留互不支配的最早候选时间</text>
+
+<rect x="28" y="48" width="390" height="292" rx="13" fill="#fafaf9" stroke="#e7e5e4" stroke-width="1.2"/>
+<text x="48" y="75" class="t-sub" font-weight="700">固定 e = 1；横轴是 outer，纵轴是 inner</text>
+
+<g stroke="#e7e5e4" stroke-width="1">
+<line x1="92" y1="104" x2="92" y2="300"/><line x1="162" y1="104" x2="162" y2="300"/><line x1="232" y1="104" x2="232" y2="300"/><line x1="302" y1="104" x2="302" y2="300"/><line x1="372" y1="104" x2="372" y2="300"/>
+<line x1="92" y1="300" x2="372" y2="300"/><line x1="92" y1="251" x2="372" y2="251"/><line x1="92" y1="202" x2="372" y2="202"/><line x1="92" y1="153" x2="372" y2="153"/><line x1="92" y1="104" x2="372" y2="104"/>
+</g>
+<g stroke="#57534e" stroke-width="1.5">
+<line x1="82" y1="300" x2="390" y2="300"/><line x1="92" y1="312" x2="92" y2="88"/>
+</g>
+<g class="t-micro" fill="#57534e">
+<text x="92" y="319" text-anchor="middle">0</text><text x="162" y="319" text-anchor="middle">1</text><text x="232" y="319" text-anchor="middle">2</text><text x="302" y="319" text-anchor="middle">3</text><text x="372" y="319" text-anchor="middle">4</text>
+<text x="74" y="304" text-anchor="end">0</text><text x="74" y="255" text-anchor="end">1</text><text x="74" y="206" text-anchor="end">2</text><text x="74" y="157" text-anchor="end">3</text><text x="74" y="108" text-anchor="end">4</text>
+<text x="358" y="334">outer o →</text><text x="48" y="98">inner i ↑</text>
+</g>
+
+<path d="M 232 251 L 302 251 L 302 300 L 390 300" fill="none" stroke="#6d28d9" stroke-width="2" stroke-dasharray="6 5"/>
+<circle cx="232" cy="251" r="7" fill="#6d28d9"/><circle cx="302" cy="300" r="7" fill="#6d28d9"/>
+<text x="184" y="241" class="t-label" fill="#6d28d9">(1,2,1)</text>
+<text x="312" y="289" class="t-label" fill="#6d28d9">(1,3,0)</text>
+
+<g fill="#a8a29e">
+<circle cx="232" cy="153" r="5"/><circle cx="302" cy="202" r="5"/><circle cx="372" cy="251" r="5"/>
+</g>
+<g class="t-micro" fill="#57534e">
+<text x="242" y="147">(1,2,3)</text><text x="312" y="196">(1,3,2)</text><text x="326" y="241">(1,4,1)</text>
+<text x="125" y="125">灰点被更早的紫点覆盖，不进入 frontier</text>
+</g>
+
+<rect x="442" y="48" width="290" height="130" rx="13" fill="#f0fdfa" stroke="#0f766e" stroke-width="1.2"/>
+<text x="460" y="76" class="t-title">能比较：删掉更晚的点</text>
+<text x="460" y="108" class="t-label">(1,2,1) ≤ (1,2,3)</text>
+<text x="460" y="134" class="t-label">(1,3,0) ≤ (1,3,2)</text>
+<text x="460" y="160" class="t-sub">更早点已经表达“这些方向仍可能到来”</text>
+
+<rect x="442" y="194" width="290" height="146" rx="13" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/>
+<text x="460" y="222" class="t-title">不可比：两个方向都要保留</text>
+<text x="460" y="254" class="t-label">(1,2,1)：outer 较早，inner 较晚</text>
+<text x="460" y="280" class="t-label">(1,3,0)：outer 较晚，inner 较早</text>
+<text x="587" y="318" text-anchor="middle" class="t-title" fill="#6d28d9">frontier = {(1,2,1), (1,3,0)}</text>
+
+<rect x="28" y="366" width="704" height="58" rx="11" fill="#ffffff" stroke="#e7e5e4" stroke-width="1.2"/>
+<text x="48" y="392" class="t-label">当 (1,2,1) 的最后一份 capability / 在途消息消失</text>
+<line x1="384" y1="388" x2="442" y2="388" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#anti-purple)"/>
+<text x="468" y="392" class="t-label" fill="#6d28d9">frontier 推进为 {(1,3,0)}</text>
+<text x="48" y="414" class="t-micro">反链不是所有工作清单；它只保留当前仍有正计数的最小候选点。</text>
+</svg>
+<figcaption class="fig-caption">antichain 的“anti”不是反向，而是“链不起来”：任取两个 frontier 点，都不能用 ≤ 把它们排成先后。能排出先后的候选点只保留较早者；互不可比的方向必须一起保留。支撑某个最小点的最后一份进度证据消失后，frontier 才会向前推进。</figcaption>
+</figure>
+
+对 P 上的目标时间 <code>t</code>，判断“这个时间是否已经关闭”的条件于是非常直接：
+
+<pre><code>若存在 f ∈ frontier(P)，满足 f ≤ t：仍有未来工作可能影响 t，答案尚未完整。
+若不存在这样的 f：P 已经越过 t；该时间的输入已经关闭，相关结果可确认完整，状态可以回收。</code></pre>
+
+这不是全局同步点。每个输入端口根据能到达自己的 capability 和在途消息维护各自的 frontier；跨 worker 的计数会被汇总，但 worker 不需要停下来互相等齐，不同算子也可以位于不同的逻辑进度。
+
+**最后看不动点。** 对循环体来说，“这一瞬间队列为空”不能证明已经收敛，因为旧消息可能仍在路上，算子也可能还持有 capability。真正的数据不动点是：本轮输入不再产生新的差分；真正可被运行时确认的不动点则还要再多一步——所有可能回到循环入口的消息都已消费，所有能产生这类消息的 capability 都已释放或降级。
+
+这时，内层入口 P 不再有属于该轮次的候选时间，内层 frontier 会越过这些时间，必要时变成空反链；外层也以同样方式继续推进。当外层输出的 frontier 最终越过 epoch <code>e</code>，下游才得到一个可靠承诺：**这个 epoch 的循环结果以后不会再改。** <code>leave</code> 可以在计算过程中持续把差分输出到外层；frontier 越过 <code>e</code> 表示这些增量现在已经完整，而不是此刻才把整批结果一次性吐出。
+
+所以三者的关系是：
+
+<pre><code>时间戳与偏序：描述“旧工作还能影响哪里”
+capability + 在途消息：记录“未来工作确实还存在”
+frontier / antichain：把这些证据压缩成端口的完成边界
+frontier 越过目标时间：把“没有新差分”确认为不动点</code></pre>
+
+#### 4.2.4 iterate 算子：把回边封装成一次函数调用
 
 有了嵌套时间戳，"循环"就可以从一种图结构变成一个普通算子。Differential Dataflow 的 `iterate` 正是这样做的。用它写 §3 的股权穿透查询：
 
@@ -661,11 +929,11 @@ let reach = start.iterate(|known| {
 1. 进入 `iterate` 时，输入消息的时间戳被压入 iteration 坐标，初值为 0；
 2. 每一轮，循环体的输出沿回边送回输入，iteration 加一；
 3. `distinct` 保证集合在有限轮后不再变化——到达不动点；
-4. frontier 越过所有已产生的 iteration 时，算子确认不会再有新结果，弹出坐标，把整个循环的结果作为同一 epoch 上的普通输出交给下游。
+4. 循环结果会在计算过程中经 `leave` 持续输出；当相关 frontier 越过这些 iteration，并最终让外层 frontier 越过该 epoch 时，下游才确认此前收到的增量已经完整，不会再被修改。
 
 对外部世界，整个 `iterate` 就是一个普通的映射算子：输入是某个 epoch 上的一批起始公司，输出是同一 epoch 上的穿透结果。**轮次被完整地封装在算子内部**——这是嵌套时间戳的回报：循环不再是图的特殊形状，而是一次可以组合的函数调用。§2 说计算图与函数表达式同构，到这里，递归函数也被收编了进来。
 
-#### 4.2.4 同一条查询，按逻辑时间推演
+#### 4.2.5 同一条查询，按逻辑时间推演
 
 回到 §3 的持股链，看 `iterate` 内部实际发生什么（下面是一种可能的交错顺序；异步执行中顺序本身不唯一）：
 
@@ -721,7 +989,7 @@ let reach = start.iterate(|known| {
 
 代价还有编程门槛：每条消息都要正确携带时间戳，每个算子都要参与进度追踪（在 Timely 里体现为 capability 的管理），这是同步模型的程序员不需要操心的。
 
-**追问一：iterate 会攒够一批消息再处理吗？** 不会。数据面上消息逐条立即处理——物理时间轴里 `戊@(3,3)` 抢在 `(3,2)` 的最后一条消息之前流动，就是证据。唯一会"等"的是 frontier 这条控制通道，而它只回答"哪个时间戳可以定稿、状态可以回收"，不拦截数据。
+**追问一：iterate 会攒够一批消息再处理吗？** 不会。数据面上消息逐条立即处理——物理时间轴里 `戊@(3,3)` 抢在 `(3,2)` 的最后一条消息之前流动，就是证据。唯一会“等”的是 frontier 这条控制通道，而它只回答“哪个逻辑时间已经关闭、相关状态可以回收”，不拦截数据。
 
 **追问二：那重复消息的代价怎么压低？** 靠合并（consolidation）。Differential 的每条更新是（数据， 时间， 权重）三元组，系统会随手把同一（数据， 时间）的更新合并：权重相加，抵消为零的直接删除。效果立竿见影——同一轮里先 +1 又 −1，合并后等于什么都没发生，下游零工作量；同一个 key 在同一时间被两次 +1，合并成 +2，distinct 只需输出一次。注意这是"随到随合并"，不是"攒够了再发"：合并不引入任何等待，只是把废更新消灭在传播途中。worker 之间的网络打包同理，是吞吐优化，对语义透明。
 
@@ -914,7 +1182,7 @@ SELECT company FROM reach;
 | 工作单元 | 一次调用、一棵子树、一轮工作表 | 一条记录、一个搜索状态、一次增量 |
 | 相关 Top-1 | 外层行绑定参数，驱动内层 Sort + Limit | 外层行进入 scope，未完成状态逐桶反馈 |
 | SQL 递归 | 树外 driver 物化工作表并启动下一轮 | 新 Δ 记录沿图内 feedback 返回 |
-| 完成判定 | 子树关闭、工作表为空、driver 结束 | frontier 越过相关时间点，状态和输出可定稿 |
+| 完成判定 | 子树关闭、工作表为空、driver 结束 | frontier 越过相关时间点，输出可确认完整，相关状态可回收 |
 
 这并不意味着 Timely 没有控制：运行时仍然调度算子、管理线程、追踪 frontier。区别在于，这些控制是执行系统的基础设施，不是查询逻辑本身。火山模型把“先做什么、再做什么”写进调用关系；数据流模型把“数据如何变化”写进图，剩下的事交给数据到达来触发。
 
