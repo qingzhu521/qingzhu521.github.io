@@ -10,9 +10,9 @@ minima:
 markdown: kramdown
 permalink: /:year/:month/:day/:title/
 
-# Cloudflare Pages 部署地址（项目名 qingzhu521-blog → qingzhu521-blog.pages.dev）
+# Cloudflare Workers 部署地址（临时账号 Sleet Streetcar，认领后如改名需更新此 url）
 # 如绑自定义域名，把 url 改为对应域名即可
-url: "https://qingzhu521-blog.pages.dev"
+url: "https://qingzhu521-blog.sleet-streetcar.workers.dev"
 baseurl: ""
 
 # 排除不需要进 _site 的文件
