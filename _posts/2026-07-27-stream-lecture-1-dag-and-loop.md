@@ -54,7 +54,7 @@ tags: [flink, timely-dataflow, 并行计算, 递归sql]
 
 下面先从数据库读者最熟悉的执行模型讲起。
 
-## 0. 从火山模型到 pipeline 模型
+## 0. 从火山模型到 dataflow 模型
 
 这一章交代两套执行模型的关系：火山模型怎么组织一次查询，输入无界之后哪里失效，以及 pipeline、DAG、dataflow 三个词各自的分工。
 
