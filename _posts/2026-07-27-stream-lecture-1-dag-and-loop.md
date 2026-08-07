@@ -164,7 +164,7 @@ tags: [flink, timely-dataflow, 并行计算, 递归sql]
 | 输入有限，"算完了"是自然事实 | 文件结束意味着输入完整 | 无法宣布某段时间的答案已经齐了 |
 
 <figure class="fig-card">
-<svg class="fig-svg" viewBox="0 0 760 440" role="img" aria-label="上：火山模型的生命周期 open、next 若干次、close，随后是查询结束的明确终点，终点之后计划销毁；下：流系统的生命周期 open 之后记录持续到达，close 以虚线框标注永不发生，下方三个框为状态、窗口、进度三笔债">
+<svg class="fig-svg" viewBox="0 0 760 440" role="img" aria-label="上：火山模型的生命周期 open、next 若干次、close，随后是查询结束的明确终点，终点之后计划销毁；下：流系统的生命周期 open 之后记录持续到达，close 以虚线框标注永不发生，下方三个框为状态、窗口、进度三个问题">
 <defs>
 <marker id="fig2-gray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#a8a29e"/></marker>
 </defs>
@@ -214,12 +214,12 @@ tags: [flink, timely-dataflow, 并行计算, 递归sql]
 <text x="602" y="384" class="t-micro">punctuation → watermark</text>
 <text x="20" y="424" class="t-micro">时间 →</text>
 </svg>
-<figcaption class="fig-caption">同样的算子，两种生命周期。上（火山）：输入有限，open → next()×N → close 有明确终点；查询结束后计划销毁，算子不留下任何东西。下（流系统）：输入不停，close() 永不发生——这一个事实生出三笔债：状态（中间结果必须跨调用存活）、窗口（阻塞算子永远等不到全部输入）、进度消息（完成必须由 punctuation / watermark 制造出来）。</figcaption>
+<figcaption class="fig-caption">同样的算子，两种生命周期。上（火山）：输入有限，open → next()×N → close 有明确终点；查询结束后计划销毁，算子不留下任何东西。下（流系统）：输入不停，close() 永不发生——这一个事实带来三个问题：状态（中间结果必须跨调用存活）、窗口（阻塞算子永远等不到全部输入）、进度消息（完成必须由 punctuation / watermark 制造出来）。</figcaption>
 </figure>
 
-第三笔债是进度问题。完成不再自动发生，系统就必须自己制造完成：标点消息（punctuation）是一条控制消息，声明"某时间之前的数据不会再来了"——它是第三篇 watermark 与本篇 §4.2 frontier 的直系祖先。
+第三个问题是进度。完成不再自动发生，系统就必须自己制造完成：标点消息（punctuation）是一条控制消息，声明"某时间之前的数据不会再来了"——它是第三篇 watermark 与本篇 §4.2 frontier 的直系祖先。
 
-一句话收束：**从火山到数据流，表面上是拉与推的方向反转，实质是"计算"的生命周期从一次查询变成常驻服务，"进度"从隐含前提变成必须显式制造的一等公民。** 后面的所有概念——状态、窗口、watermark、frontier——都在为这两件事还债。
+一句话收束：**从火山到数据流，表面上是拉与推的方向反转，实质是"计算"的生命周期从一次查询变成常驻服务，"进度"从隐含前提变成必须显式制造的一等公民。** 后面的所有概念——状态、窗口、watermark、frontier——都在回答这两个变化带来的问题。
 
 ### 0.3 三个词各管一件事：DAG、Pipeline、Dataflow
 
