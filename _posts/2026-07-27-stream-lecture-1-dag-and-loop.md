@@ -670,7 +670,7 @@ sum8(a, b, c, d, e, f, g, h)
 
 Timely Dataflow 做了相反的选择：不设全局屏障，每个算子收到消息就立即增量计算并继续输出。这样解决了“数据怎样持续向前流动”，却没有解决“外部什么时候可以拿到一个 epoch 的完整答案”。运行时不会打开 join、distinct 或循环算子的业务状态，替它们理解“现在是否已经算完”；它只认识算子按照进度协议公开出来的状态。即使输入端已经结束 epoch `e`，由 `e` 产生的工作仍可能缓存在算子中、飞行在网络上，或者继续沿循环回边传播。下面先看循环怎样把时间写进消息，再解释系统怎样从这些时间的进度状态确认：epoch `e` 的答案以后不会再变。
 
-#### 4.2.1 嵌套时间戳：进入循环，就加一个坐标
+#### 4.2.1 PointStamp（时空坐标）：进入循环，就加一个坐标
 
 先用一个坐标：给每条消息标上它属于第几轮，够吗？对单个循环够了。但真实计算里循环外面还有循环：输入一批接一批到来（批与批之间是 epoch），每一批内部可能要做迭代（iteration），迭代里面还可能再嵌套迭代。一个整数分不清"第 2 批的第 3 轮"和"第 3 批的第 2 轮"。
 
@@ -1251,7 +1251,7 @@ frontier 越过目标时间：把“没有新差分”确认为不动点</code><
 
 #### 4.2.5 iterate 算子：把回边封装成一次函数调用
 
-有了嵌套时间戳，"循环"就可以从一种图结构变成一个普通算子。Differential Dataflow 的 `iterate` 正是这样做的。用它写 §3 的股权穿透查询：
+有了 PointStamp，"循环"就可以从一种图结构变成一个普通算子。Differential Dataflow 的 `iterate` 正是这样做的。用它写 §3 的股权穿透查询：
 
 ```rust
 // holds: (股东, 被持股公司) 静态表；start: 起始集合 {P}
@@ -1270,7 +1270,7 @@ let reach = start.iterate(|known| {
 3. `distinct` 保证集合在有限轮后不再变化——到达不动点；
 4. 循环结果会在计算过程中经 `leave` 持续输出；当相关 frontier 越过这些 iteration，并最终让外层 frontier 越过该 epoch 时，下游才确认此前收到的增量已经完整，不会再被修改。
 
-对外部世界，整个 `iterate` 就是一个普通的映射算子：输入是某个 epoch 上的一批起始公司，输出是同一 epoch 上的穿透结果。**轮次被完整地封装在算子内部**——这是嵌套时间戳的回报：循环不再是图的特殊形状，而是一次可以组合的函数调用。§2 说计算图与函数表达式同构，到这里，递归函数也被收编了进来。
+对外部世界，整个 `iterate` 就是一个普通的映射算子：输入是某个 epoch 上的一批起始公司，输出是同一 epoch 上的穿透结果。**轮次被完整地封装在算子内部**——这是 PointStamp 的回报：循环不再是图的特殊形状，而是一次可以组合的函数调用。§2 说计算图与函数表达式同构，到这里，递归函数也被收编了进来。
 
 #### 4.2.6 同一条查询，按逻辑时间推演
 
@@ -1601,7 +1601,7 @@ let prefix = rows.iterate(|cur| {
 - Goetz Graefe, "Encapsulation of Parallelism in the Volcano Query Processing System" (SIGMOD 1990)：exchange 算子
 - Tucker, Maier, Sheard, Fegaras, "Exploiting Punctuation Semantics in Continuous Data Streams" (IEEE TKDE 2003)：标点消息（punctuation）
 - Hueske et al., "Opening the Black Boxes in Data Flow Optimization" (PVLDB 2012)：流式 pipeline 边界的形式化，Stratosphere/Flink
-- Naiad: A Timely Dataflow System (SOSP'13) §2–3：嵌套时间戳、progress tracking、frontier
+- Naiad: A Timely Dataflow System (SOSP'13) §2–3：PointStamp（时空坐标）、progress tracking、frontier
 - Differential Dataflow (CIDR'13)：`iterate` 与 semi-naïve 求值
 - Malewicz et al., "Pregel" (SIGMOD 2010)：superstep 同步迭代
 - Valiant, "A Bridging Model for Parallel Computation" (1990)：BSP 模型
