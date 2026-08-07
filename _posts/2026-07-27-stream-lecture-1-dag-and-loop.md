@@ -149,7 +149,7 @@ tags: [flink, timely-dataflow, 并行计算, 递归sql]
 
 并行化也在同一框架里完成：Graefe 把 shuffle 包装成一个普通算子（Exchange）插进树里，树内走流水线，跨 exchange 换线程、换机器。今天所有 MPP 引擎的并行执行——包括 OceanBase PX 把计划切成 DFO 分发——本质都是"火山模型 + exchange"。
 
-### 0.2 输入无界：三个想当然的假设同时失效
+### 0.2 输入无界：三个天然成立的假设同时失效
 
 此后三十年，数据库阵营对这套模型的改造都没有超出"一次查询"的前提：per-tuple 调用开销大，就一次返回一批——向量化与 morsel-driven 执行；pipeline 内解释执行慢，就把整条 pipeline 编译成 push 风格的机器码。这些改造压的是开销，不是前提：**输入有限，查询有始有终。**
 
