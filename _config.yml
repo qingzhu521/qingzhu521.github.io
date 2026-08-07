@@ -24,3 +24,4 @@ exclude:
   - node_modules
   - README.md
   - DESIGN.md
+  - wrangler.toml

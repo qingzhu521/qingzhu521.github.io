@@ -1,0 +1,7 @@
+# Cloudflare Workers 静态资产部署配置
+# CI 用 wrangler deploy 读取此文件，将 _site/ 作为静态资产部署到 Cloudflare CDN
+name = "qingzhu521-blog"
+compatibility_date = "2024-09-01"
+
+[assets]
+directory = "./_site"
