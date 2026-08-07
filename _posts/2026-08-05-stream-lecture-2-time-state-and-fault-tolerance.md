@@ -46,17 +46,17 @@ tags: [storm, flink, timely-dataflow, watermark, state, checkpoint]
 
 在动笔之前，先把全篇唯一的例子展示在这里。七笔订单，schema 是 `(order_id, user, amount, event_time)`：
 
-| 订单 | 用户 | 金额 | 事件时间（10:00 起的分钟数） | 应属窗口 |
+| 订单 | 用户 | 金额 | 时间 | 应属窗口 |
 | --- | --- | --- | --- | --- |
 | o1 | U1 | 10 | 1 | W1 |
 | o2 | U2 | 20 | 2 | W1 |
 | o3 | U3 | 30 | 3 | W1 |
-| o4 | U4 | 40 | 4 | W2 |
-| o5 | U5 | 50 | 5 | W2 |
-| o6 | U6 | 60 | 6 | W2 |
-| o7 | U7 | 70 | 7 | W2 |
+| o4 | U4 | 40 | 5 | W2 |
+| o5 | U5 | 50 | 6 | W2 |
+| o6 | U6 | 60 | 7 | W2 |
+| o7 | U7 | 70 | 8 | W2 |
 
-计算任务是两个事件时间滚动窗口上的订单数与 GMV：W1 = [10:00, 10:04)，W2 = [10:04, 10:08)。正确答案固定不变：W1 应有 C=3、GMV=60；W2 应有 C=4、GMV=220。
+计算任务是两个事件时间滚动窗口上的订单数与 GMV。**窗口约定：左闭右开**，每扇窗包含左端点、不包含右端点：W1 = [10:00, 10:05)，W2 = [10:05, 10:10)。事件时间达到 10:05 的订单属于 W2，10:05 是两扇窗之间干净的分界：o3（事件时间 10:03）落在 W1，o4（事件时间 10:05）是 W2 的第一笔订单，因为窗口不包含自己的右端点。正确答案固定不变：W1 应有 C=3、GMV=60；W2 应有 C=4、GMV=220。
 
 数据源按事件时间升序发出这七笔订单。但 o3 在手机上多滞留了一会儿，o5 来自一部离线手机，于是系统实际看到的到达顺序是：
 
@@ -71,20 +71,20 @@ tags: [storm, flink, timely-dataflow, watermark, state, checkpoint]
 <marker id="ex-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#57534e"/></marker>
 </defs>
 <text x="380" y="25" text-anchor="middle" class="t-title">同一批订单的两条时间轴</text>
-<rect x="120" y="52" width="320" height="30" rx="6" fill="#f0fdfa" stroke="#99f6e4"/>
-<rect x="440" y="52" width="320" height="30" rx="6" fill="#fff7ed" stroke="#fdba74"/>
-<text x="280" y="71" text-anchor="middle" class="t-sub">W1 = [10:00, 10:04)</text>
-<text x="600" y="71" text-anchor="middle" class="t-sub">W2 = [10:04, 10:08)</text>
+<rect x="110" y="52" width="340" height="30" rx="6" fill="#f0fdfa" stroke="#99f6e4"/>
+<rect x="450" y="52" width="300" height="30" rx="6" fill="#fff7ed" stroke="#fdba74"/>
+<text x="280" y="71" text-anchor="middle" class="t-sub">W1 = [10:00, 10:05)</text>
+<text x="600" y="71" text-anchor="middle" class="t-sub">W2 = [10:05, 10:10)</text>
 <line x1="60" y1="130" x2="740" y2="130" stroke="#57534e" stroke-width="1.5" marker-end="url(#ex-arrow)"/>
 <text x="60" y="118" class="t-label">事件时间</text>
 <g>
 <circle cx="150" cy="130" r="13" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="150" y="134" text-anchor="middle" class="t-label">o1</text>
 <circle cx="230" cy="130" r="13" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="230" y="134" text-anchor="middle" class="t-label">o2</text>
 <circle cx="310" cy="130" r="13" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="310" y="134" text-anchor="middle" class="t-label">o3</text>
-<circle cx="390" cy="130" r="13" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="390" y="134" text-anchor="middle" class="t-label">o4</text>
-<circle cx="470" cy="130" r="13" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.5"/><text x="470" y="134" text-anchor="middle" class="t-label">o5</text>
-<circle cx="550" cy="130" r="13" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="550" y="134" text-anchor="middle" class="t-label">o6</text>
-<circle cx="630" cy="130" r="13" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="630" y="134" text-anchor="middle" class="t-label">o7</text>
+<circle cx="470" cy="130" r="13" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="470" y="134" text-anchor="middle" class="t-label">o4</text>
+<circle cx="550" cy="130" r="13" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.5"/><text x="550" y="134" text-anchor="middle" class="t-label">o5</text>
+<circle cx="630" cy="130" r="13" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="630" y="134" text-anchor="middle" class="t-label">o6</text>
+<circle cx="710" cy="130" r="13" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="710" y="134" text-anchor="middle" class="t-label">o7</text>
 </g>
 <line x1="60" y1="240" x2="740" y2="240" stroke="#57534e" stroke-width="1.5" marker-end="url(#ex-arrow)"/>
 <text x="60" y="228" class="t-label">到达时间</text>
@@ -98,7 +98,7 @@ tags: [storm, flink, timely-dataflow, watermark, state, checkpoint]
 <circle cx="660" cy="240" r="13" fill="#ffedd5" stroke="#9a3412" stroke-width="1.5"/><text x="660" y="244" text-anchor="middle" class="t-label">o5</text>
 </g>
 <path d="M310 143 C330 190,340 195,358 227" fill="none" stroke="#9a3412" stroke-width="1.4" stroke-dasharray="4 4"/>
-<path d="M470 143 C520 230,600 200,652 227" fill="none" stroke="#9a3412" stroke-width="1.4" stroke-dasharray="4 4"/>
+<path d="M550 143 C580 225,610 210,652 227" fill="none" stroke="#9a3412" stroke-width="1.4" stroke-dasharray="4 4"/>
 <text x="340" y="196" class="t-micro">o3：小乱序</text>
 <text x="560" y="200" class="t-micro">o5：离线手机，大迟到</text>
 <text x="380" y="300" text-anchor="middle" class="t-sub">橙色虚线：离开自己时间位置的两笔订单；其余订单按序到达，连线从略</text>
@@ -144,7 +144,7 @@ R(T) = F({ e | EventTime(e) <= T })
 
 | 时间域 | 本例中的取值 | 回答的问题 |
 | --- | --- | --- |
-| Event Time | o5 的支付发生在 t=5 | 业务事实什么时候发生，应归入哪个窗口 |
+| Event Time | o5 的支付发生在 t=6 | 业务事实什么时候发生，应归入哪个窗口 |
 | Ingestion Time | o5 进入消息系统的时刻 | 数据什么时候进入流平台，入口积压了多久 |
 | Processing Time | 算子实际处理 o5 的墙上时刻，重放（replay）时会变 | 某次执行什么时候处理了它 |
 
@@ -152,7 +152,7 @@ R(T) = F({ e | EventTime(e) <= T })
 
 乱序的成因分两类。系统之外：网络路由的延迟差异，多数据源各自为政、合并后天然交错；本例的 o3 和 o5 都是外部原因。系统之内：并行 join 按 join 属性重分区后按匹配顺序输出，按非排序属性开窗，按非排序属性做优先级调度，对两个未同步的流做 union，每一种都会把整齐的流重新打乱。
 
-后果可以用本例直接坐实。`map`、`filter`、`project`、去重、union 这类顺序无关算子，乱序来了也照算。窗口聚合不一样：如果系统看到 o4（ET=4）就认为 W1 该关了，W1 会输出 C=2、GMV=30，o3 的 30 块钱就丢了。这是第一个难题：对乱序坐视不管，结果就是在部分输入上算答案。对面还有第二个难题：不知道数据能晚到多久就无限等待，输出被堵死，状态无限囤积。乱序管理要做的，就是越过这两个难题。
+后果可以用本例直接坐实。`map`、`filter`、`project`、去重、union 这类顺序无关算子，乱序来了也照算。窗口聚合不一样：如果系统看到 o4（ET=5）就认为 W1 该关了，W1 会输出 C=2、GMV=30，o3 的 30 块钱就丢了。这是第一个难题：对乱序坐视不管，结果就是在部分输入上算答案。对面还有第二个难题：不知道数据能晚到多久就无限等待，输出被堵死，状态无限囤积。乱序管理要做的，就是越过这两个难题。
 
 把因果链摆出来：**无界 → 要切窗口 → 窗口要完整性判据 → 乱序让判据变难**。
 
@@ -173,7 +173,7 @@ R(T) = F({ e | EventTime(e) <= T })
 | o1, o2 | 位置正确，直接转发 | o1, o2 |
 | o4 | 位置 3 空缺，入缓冲等待 | （无） |
 | o3 | 补齐空缺；重排后转发，清空缓冲 | o3, o4 |
-| o6, o7 | 位置 5 空缺；缓冲到 o7 时，o5 已错位 2 个位置，越过上界 | 宽限耗尽：仍未到的 t≤5 数据一律视为越界，转发 o6, o7 |
+| o6, o7 | 位置 5 空缺；缓冲到 o7 时，o5 已错位 2 个位置，越过上界 | 宽限耗尽：仍未到的 t≤6 数据一律视为越界，转发 o6, o7 |
 | o5 | 迟到越界 | 丢弃 |
 
 W1 在被转发的 o4 触及窗口末端时触发：C=3、GMV=60，正确。代价写在入口处：缓冲的内存与延迟，以及越界数据被直接丢掉。
@@ -184,11 +184,12 @@ W1 在被转发的 o4 触及窗口末端时触发：C=3、GMV=60，正确。代�
 | --- | --- | --- | --- |
 | o1 | 计入 W1 | {o1} / {} | maxET−2 = −1 |
 | o2 | 计入 W1 | {o1,o2} / {} | 0 |
-| o4 | 计入 W2 | {o1,o2} / {o4} | 2 |
-| o3 | 3 &gt; 2，合法迟到，计入 W1 | {o1,o2,o3} / {o4} | 2 |
-| o6 | 计入 W2；进度界到 4，触发 W1 输出 | **W1 输出 C=3, GMV=60** / {o4,o6} | 4 |
-| o7 | 计入 W2 | / {o4,o6,o7} | 5 |
-| o5 | 5 不大于 5，越界 | 拒收（或进侧输出） | 5 |
+| o4 | 计入 W2 | {o1,o2} / {o4} | 3 |
+| o3 | 3 不早于 3，合法迟到，计入 W1 | {o1,o2,o3} / {o4} | 3 |
+| o6 | 计入 W2；进度界到 5，触发 W1 输出 | **W1 输出 C=3, GMV=60** / {o4,o6} | 5 |
+| o7 | 计入 W2 | / {o4,o6,o7} | 6 |
+| … | 后续订单陆续到达，进度界继续推进 | / {o4,o6,o7} | 7 |
+| o5 | 6 早于进度界 7，越界 | 拒收（或进侧输出） | 7 |
 
 两种方式算出的 W1 相同，路径完全不同：有序架构把复杂度放在入口缓冲区，乱序架构把复杂度放在“为迟到数据保留的状态”和一套进度协议上。
 
@@ -222,7 +223,7 @@ W1 在被转发的 o4 触及窗口末端时触发：C=3、GMV=60，正确。代�
 
 ## 4. 三种进度机制：逐渐严谨的进度追踪
 
-三种机制，同一份订单流，同一对窗口，只换进度信息的生产方式。先约定全篇规则：元组被接纳的条件是其事件时间**大于**当前进度界；窗口在进度界达到窗口末端时触发。
+三种机制，同一份订单流，同一对窗口，只换进度信息的生产方式。先约定全篇规则：元组被接纳的条件是其事件时间**不早于**当前进度界；窗口在进度界达到窗口末端时触发。
 
 ### 4.1 松弛量（Slack）：拍脑袋的预算
 
@@ -231,7 +232,7 @@ Slack 是一个固定宽限。它最早按元组个数计量：一个乱序元�
 | 步骤 | 事件 | 算子行为 |
 | --- | --- | --- |
 | 1 | o1, o2 到达 | 计入 W1 |
-| 2 | o4 到达（ET=4 触及 W1 末端） | 不触发，宽限内再等 1 个元组 |
+| 2 | o4 到达（ET=5 触及 W1 末端） | 不触发，宽限内再等 1 个元组 |
 | 3 | o3 到达（错位 1 位，在宽限内） | 计入 W1；宽限耗尽，触发 W1：**C=3, GMV=60** |
 | 4 | o6, o7 到达 | 计入 W2 |
 | 5 | o5 到达（错位 2 位，超出 slack=1） | 拒收 |
@@ -245,11 +246,12 @@ Slack 是一个固定宽限。它最早按元组个数计量：一个乱序元�
 | 步骤 | 到达算子的内容 | 算子行为 |
 | --- | --- | --- |
 | 1 | o1, o2 | 计入 W1 |
-| 2 | o4；punctuation LW=2 | o4 计入 W2；进度界推进到 2 |
-| 3 | o3 | 3 &gt; 2，合法迟到，计入 W1 |
-| 4 | o6；punctuation LW=4 | o6 计入 W2；LW 达到 W1 末端，触发：**C=3, GMV=60** |
-| 5 | o7；punctuation LW=5 | o7 计入 W2 |
-| 6 | o5 | 5 不大于 5，拒收 |
+| 2 | o4；punctuation LW=3 | o4 计入 W2；进度界推进到 3 |
+| 3 | o3 | 3 不早于 3，合法迟到，计入 W1 |
+| 4 | o6；punctuation LW=5 | o6 计入 W2；LW 达到 W1 末端，触发：**C=3, GMV=60** |
+| 5 | o7；punctuation LW=6 | o7 计入 W2 |
+| 6 | …（后续订单与 punctuation） | LW 推进到 7 |
+| 7 | o5 | 6 早于 LW=7，拒收 |
 
 low-watermark 的含义是“系统内最旧的待处理工作在哪里”，它把进度概念延伸进了计算内部；并且可以从时间戳推广到任何递进属性，比如用序列号度量进度。
 
@@ -263,7 +265,7 @@ pointstamp 不是独立的 punctuation，而是附着在每个元组上的 `(时
 
 循环数据流最能看出 pointstamp 的价值。用 punctuation 传递进度时，环里的二元算子（join 或 union）必须在两路输入都看到同一 punctuation 才能转发，否则阻塞等待；可它的一路输入来自自己下游的输出，等输出要先等输入，等输入要先等输出，死锁不可避免。pointstamp 把迭代次数收进逻辑时间：消息每绕一圈反馈边，iteration 分量加一，所有未处理事件在偏序上排队，frontier 照样推进，没有谁等谁的问题。
 
-但有一个边界必须说清：这种精确只对已经纳入逻辑时间协议的内部计算成立。o5 的事件时间来自手机，是外部世界的事实；输入端仍然要自己决定何时宣布“t=5 之前的输入已完整”。一旦宣布，后来补到的更小 epoch 数据就没有别的出路，只能作为更晚逻辑时间上的撤回或更新来表达——它只能触发修订，这正是 4.6 要讲的。
+但有一个边界必须说清：这种精确只对已经纳入逻辑时间协议的内部计算成立。o5 的事件时间来自手机，是外部世界的事实；输入端仍然要自己决定何时宣布“t=6 之前的输入已完整”。一旦宣布，后来补到的更小 epoch 数据就没有别的出路，只能作为更晚逻辑时间上的撤回或更新来表达——它只能触发修订，这正是 4.6 要讲的。
 
 ### 4.4 三种机制对比
 
@@ -271,7 +273,7 @@ pointstamp 不是独立的 punctuation，而是附着在每个元组上的 `(时
 | --- | --- | --- | --- | --- |
 | 进度证据 | 固定宽限，无证据 | 最旧待处理工作 | 未完成事件的精确依赖 |
 | 载体 | 查询参数 | punctuation | 每个元组自带 |
-| W1 触发时机 | o3 到达且宽限耗尽 | LW=4 到达 | frontier 越过 t=3 |
+| W1 触发时机 | o3 到达且宽限耗尽 | LW=5 到达 | frontier 越过 t=3 |
 | 本例 W1 结果 | C=3, GMV=60 | C=3, GMV=60 | C=3, GMV=60 |
 | o3 的命运 | 宽限内收下 | 收下 | 必然被等待 |
 | o5 的命运 | 越界拒收 | 拒收 | 取决于输入端的进度声明 |
@@ -293,7 +295,7 @@ OperatorWM = min(LocalWM_1, ..., LocalWM_n)
 
 这里不存在放在中心节点里的“全作业唯一 Watermark”；每个算子实例根据自己的活跃输入各自计算，进度逐层传播。一路输入停住就拖住全局，所以还需要 idleness 机制把长期无数据的分区暂时排除。Watermark 作为控制消息随数据流传播，不会越过排在自己前面的元组。
 
-**Storm：先回答另一个问题。** 经典 Storm 的核心机制不是事件时间进度，而是对 tuple tree 的完成检测：acker 不保存整棵树，只维护所有创建与确认的 tuple id 的 XOR，归零即完成；超时由可靠 spout replay，配齐 anchoring 后得到 at-least-once。这套协议回答“从某条源消息展开的所有工作是否已被确认”，它不回答“t=4 之前的数据是否到齐”。Storm 的 Windowing API 曾经提供过基于 lag 的事件时间窗口，但 heartbeat 这种源端承诺已经不是现在主流系统处理进度的主要方式；经典 Storm core 仍然只负责消息完成和重放。
+**Storm：先回答另一个问题。** 经典 Storm 的核心机制不是事件时间进度，而是对 tuple tree 的完成检测：acker 不保存整棵树，只维护所有创建与确认的 tuple id 的 XOR，归零即完成；超时由可靠 spout replay，配齐 anchoring 后得到 at-least-once。这套协议回答“从某条源消息展开的所有工作是否已被确认”，它不回答“t=5 之前的数据是否到齐”。Storm 的 Windowing API 曾经提供过基于 lag 的事件时间窗口，但 heartbeat 这种源端承诺已经不是现在主流系统处理进度的主要方式；经典 Storm core 仍然只负责消息完成和重放。
 
 **Timely/Naiad：pointstamp 与 frontier。** 如 4.3 所示，逻辑时间、capability、pointstamp、frontier 四层协议给出精确进度，循环数据流是它的主场。Timely 把无界输入切成 `(epoch, iteration)` 的坐标——第一篇的股权穿透迭代就是在这套坐标下跑的，用的正是这套东西。
 
@@ -314,13 +316,13 @@ OperatorWM = min(LocalWM_1, ..., LocalWM_n)
 
 ### 4.6 越过边界：迟到（lateness）、修订（revision），以及修订的本钱
 
-回到本例。假设使用 Flink 风格的语义，W1 在进度界达到 4 时已经输出 C=3、GMV=60，但配置了 `allowedLateness`，窗口状态保留到进度界越过 4+5=9 为止。注意这个参数的含义：不是“第一次输出之前多等五分钟”，而是“首次照常触发，之后继续保留状态到进度界越过窗口末端加 5”。现在又来一笔 o8：ET=2、金额 25，是另一部离线手机姗姗来迟的订单。若它到达时进度界为 5（未越过 9）：
+回到本例。假设使用 Flink 风格的语义，W1 在进度界达到 5 时已经输出 C=3、GMV=60，但配置了 `allowedLateness`，窗口状态保留到进度界越过 5+5=10 为止。注意这个参数的含义：不是“第一次输出之前多等五分钟”，而是“首次照常触发，之后继续保留状态到进度界越过窗口末端加 5”。现在又来一笔 o8：ET=2、金额 25，是另一部离线手机姗姗来迟的订单。若它到达时进度界为 6（未越过 10）：
 
 | 步骤 | 事件 | W1 状态与输出 |
 | --- | --- | --- |
-| 1 | 进度界到 4 | 首次触发：C=3, GMV=60；状态保留 |
+| 1 | 进度界到 5 | 首次触发：C=3, GMV=60；状态保留 |
 | 2 | o8 到达（2 属于 W1） | 计入 W1，再次触发：**C=4, GMV=85** |
-| 3 | 进度界越过 9 | 状态清除；此后到达的 W1 数据只能丢弃或进侧输出 |
+| 3 | 进度界越过 10 | 状态清除；此后到达的 W1 数据只能丢弃或进侧输出 |
 
 已发布的 60 要改成 85，输出形式有三种，选哪种取决于下游认哪种：
 
@@ -377,7 +379,7 @@ OperatorWM = min(LocalWM_1, ..., LocalWM_n)
 
 ### 5.1 每个算子的最小历史
 
-定义是判定标准，落到具体算子头上，必须记住的历史各不相同。到上一节末，我们的窗口算子手里一直攥着两样东西：W1 的 accumulator（C=3, GMV=60，触发后仍保留到进度界越过 9）和 W2 的 accumulator（{o4,o6,o7}，C=3, GMV=170）。把它们推广开：
+定义是判定标准，落到具体算子头上，必须记住的历史各不相同。到上一节末，我们的窗口算子手里一直攥着两样东西：W1 的 accumulator（C=3, GMV=60，触发后仍保留到进度界越过 10）和 W2 的 accumulator（{o4,o6,o7}，C=3, GMV=170）。把它们推广开：
 
 | 算子 | 必须记住什么 | 什么时候可以删除 |
 | --- | --- | --- |
@@ -491,7 +493,7 @@ exactly-once on state 有一个常被忽略的假设：计算是确定性的。�
 
 ### 6.3 输出提交问题
 
-上表被动备援那一行暴露了一个独立的问题，它有自己的名字：<span class="term">输出提交问题</span>（output commit problem）。用第五章的词汇说，这是输出进度与恢复状态对不上：状态可以回滚到 consistent snapshot，输出不行，结果一旦发布给外部世界，就无法撤回。本例中，崩溃前 W1 的结果 C=3、GMV=60 已经发给下游看板；从 CP#42 恢复后 replay o6，进度界再次到 4，W1 再次触发，看板上出现第二个 GMV=60。状态完全正确，输出却重复了。解法有五大类：
+上表被动备援那一行暴露了一个独立的问题，它有自己的名字：<span class="term">输出提交问题</span>（output commit problem）。用第五章的词汇说，这是输出进度与恢复状态对不上：状态可以回滚到 consistent snapshot，输出不行，结果一旦发布给外部世界，就无法撤回。本例中，崩溃前 W1 的结果 C=3、GMV=60 已经发给下游看板；从 CP#42 恢复后 replay o6，进度界再次到 5，W1 再次触发，看板上出现第二个 GMV=60。状态完全正确，输出却重复了。解法有五大类：
 
 | 路线 | 做法 | 代表 | 假设 |
 | --- | --- | --- | --- |
