@@ -594,7 +594,7 @@ Flink 的改进是异步 consistent cut：checkpoint barrier 作为 marker 随�
 
 ## 延伸阅读
 
-- Fragkoulis et al., *A Survey on the Evolution of Stream Processing Systems*（arXiv 2008.00842）：本文各节素材的主要来源与进一步阅读地图。§2.2 两代数据模型（本文第 3 节），§2.3 两代架构；§3.1/3.4 乱序成因与影响（本文第 2 节），§3.3 两种架构原型（本文第 3 节），§3.5.1 进度机制与 Figure 2（本文第 4 节），§3.5.2 循环查询的进度跟踪（本文 4.4），§3.5.3 revision 处理三路线（本文 4.6），§3.6 乱序管理的代际对比；§4.2 状态归属（本文 5.2），§4.5 分区与全局状态（本文 5.3），§4.4/4.6 持久化粒度与一致性（本文 5.4），§4.7 状态的代际对比；§5.1 处理语义（本文 6.1），§5.1.1 输出提交问题（本文 6.3），§5.2 高可用主被动与混合复制（本文 6.2），§5.3 容错的代际对比；§6 负载管理、弹性与重配置，本文未涉及。
+- Fragkoulis et al., *A Survey on the Evolution of Stream Processing Systems*（arXiv 2008.00842）：本文各节素材的主要来源与进一步阅读地图。§2.2 两代数据模型（本文第 3 节），§2.3 两代架构；§3.1/3.4 乱序成因与影响（本文第 2 节），§3.3 两种架构原型（本文第 3 节），§3.5.1 进度机制与 Figure 2（本文第 4 节），§3.5.2 循环查询的进度跟踪（本文 4.4），§3.5.3 revision 处理三路线（本文 4.6），§3.6 乱序管理的代际对比；§4.2 状态归属（本文 5.2），§4.5 分区与全局状态（本文 5.3），§4.4/4.6 持久化粒度与一致性（本文 5.4），§5.2 状态的代际对比；§5.1 处理语义（本文 6.1），§5.1.1 输出提交问题（本文 6.3），§5.2 高可用主被动与混合复制（本文 6.2），§5.3 容错的代际对比；§6 负载管理、弹性与重配置，本文未涉及。
 - [Apache Storm: Guaranteeing Message Processing](https://storm.apache.org/releases/2.6.1/Guaranteeing-message-processing.html)：XOR acker 与 at-least-once（本文 4.6、6.2、6.4 的 Storm 机制细节以此为准）。
 - [Apache Storm: Windowing Support](https://storm.apache.org/releases/2.6.2/Windowing.html)：Event Time、lag 与 Watermark。
 - [Apache Flink: Streaming Analytics](https://nightlies.apache.org/flink/flink-docs-stable/docs/learn-flink/streaming_analytics/)：Event Time、Watermark 与 lateness。
