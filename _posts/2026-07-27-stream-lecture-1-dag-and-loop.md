@@ -70,6 +70,83 @@ tags: [flink, timely-dataflow, 并行计算, 递归sql]
 
 注意第 3 条里的分界。执行引擎的经典视角是把计划树沿阻塞算子（pipeline breaker）切开：scan、filter、project 这类算子随产随消，它们组成的极大链就是一条 pipeline，内部不落任何中间结果；碰到 sort、聚合、hash join 的 build 侧，数据必须物化，成为下一条 pipeline 的输入。**Volcano 的 pipeline 是被 breaker 切碎的有限线段，线段的寿命等于查询的寿命。**
 
+<figure class="fig-card fig-card--dense">
+<svg class="fig-svg" viewBox="0 0 800 440" role="img" aria-label="左：算子树，HashBuild 与 Sort 标为 breaker，切口画在 breaker 处；右：三条 pipeline 各占一个线程，哈希表与有序数据经物化点交接，寿命与查询相同">
+<defs>
+<marker id="fig1-idle" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#a8a29e"/></marker>
+<marker id="fig1-orange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#9a3412"/></marker>
+</defs>
+<text x="195" y="28" text-anchor="middle" class="t-title" fill="#9a3412">计划树：breaker 在哪里，切分就在哪里</text>
+<text x="195" y="46" text-anchor="middle" class="t-sub">数据自下而上流动，碰到 breaker 就物化</text>
+<text x="592" y="28" text-anchor="middle" class="t-title" fill="#9a3412">执行视图：每条 pipeline 一个线程</text>
+<text x="592" y="46" text-anchor="middle" class="t-sub">物化点是流水线之间的交接</text>
+<line x1="390" y1="20" x2="390" y2="420" stroke="#e8e0d4" stroke-width="1" stroke-dasharray="2 4"/>
+<g stroke="#a8a29e" stroke-width="1.5" fill="none">
+<line x1="135" y1="336" x2="135" y2="306" marker-end="url(#fig1-idle)"/>
+<line x1="135" y1="268" x2="168" y2="238" marker-end="url(#fig1-idle)"/>
+<line x1="285" y1="336" x2="285" y2="306" marker-end="url(#fig1-idle)"/>
+<line x1="285" y1="268" x2="246" y2="237" marker-end="url(#fig1-idle)"/>
+<line x1="195" y1="200" x2="195" y2="170" marker-end="url(#fig1-idle)"/>
+<line x1="195" y1="132" x2="195" y2="102" marker-end="url(#fig1-idle)"/>
+</g>
+<g>
+<rect x="147" y="64" width="96" height="34" rx="9" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.4"/><text x="195" y="85" text-anchor="middle" class="t-label">汇总</text>
+<rect x="147" y="132" width="96" height="34" rx="9" fill="#ffedd5" stroke="#9a3412" stroke-width="1.5"/><text x="195" y="153" text-anchor="middle" class="t-label">Sort</text>
+<rect x="147" y="200" width="96" height="34" rx="9" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.4"/><text x="195" y="221" text-anchor="middle" class="t-label">HashJoin</text>
+<rect x="87" y="268" width="96" height="34" rx="9" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.4"/><text x="135" y="289" text-anchor="middle" class="t-label">Filter</text>
+<rect x="237" y="268" width="96" height="34" rx="9" fill="#ffedd5" stroke="#9a3412" stroke-width="1.5"/><text x="285" y="289" text-anchor="middle" class="t-label">HashBuild</text>
+<rect x="87" y="336" width="96" height="34" rx="9" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.4"/><text x="135" y="357" text-anchor="middle" class="t-label">Scan·orders</text>
+<rect x="237" y="336" width="96" height="34" rx="9" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.4"/><text x="285" y="357" text-anchor="middle" class="t-label">Scan·cust</text>
+</g>
+<g stroke="#9a3412" stroke-width="2" stroke-dasharray="7 5" fill="none">
+<line x1="135" y1="115" x2="255" y2="115"/>
+<line x1="256" y1="264" x2="277" y2="238"/>
+</g>
+<text x="263" y="119" class="t-micro" fill="#9a3412">物化：有序数据</text>
+<text x="290" y="242" class="t-micro" fill="#9a3412">物化：哈希表</text>
+<rect x="30" y="398" width="16" height="16" rx="4" fill="#ffedd5" stroke="#9a3412" stroke-width="1.2"/>
+<text x="54" y="411" class="t-sub">pipeline breaker：数据在此物化，流水线在此断开</text>
+<g>
+<rect x="405" y="64" width="375" height="64" rx="10" fill="#f6f1e7" stroke="#e8e0d4"/>
+<text x="417" y="82" class="t-micro" fill="#9a3412" font-weight="700">P1 · 线程 1</text>
+<rect x="417" y="90" width="82" height="26" rx="7" fill="#ffffff" stroke="#d6d3d1"/><text x="458" y="107" text-anchor="middle" class="t-label">Scan·cust</text>
+<line x1="499" y1="103" x2="509" y2="103" stroke="#a8a29e" stroke-width="1.5" marker-end="url(#fig1-idle)"/>
+<rect x="511" y="90" width="96" height="26" rx="7" fill="#ffffff" stroke="#d6d3d1"/><text x="559" y="107" text-anchor="middle" class="t-label">构建哈希表</text>
+<line x1="607" y1="103" x2="617" y2="103" stroke="#a8a29e" stroke-width="1.5" marker-end="url(#fig1-idle)"/>
+<rect x="619" y="90" width="124" height="26" rx="7" fill="#ffedd5" stroke="#9a3412" stroke-width="1.3"/><text x="681" y="107" text-anchor="middle" class="t-label">哈希表 · 物化</text>
+<rect x="405" y="184" width="375" height="64" rx="10" fill="#f6f1e7" stroke="#e8e0d4"/>
+<text x="417" y="202" class="t-micro" fill="#9a3412" font-weight="700">P2 · 线程 2</text>
+<rect x="417" y="210" width="88" height="26" rx="7" fill="#ffffff" stroke="#d6d3d1"/><text x="461" y="227" text-anchor="middle" class="t-label">Scan·orders</text>
+<line x1="505" y1="223" x2="515" y2="223" stroke="#a8a29e" stroke-width="1.5" marker-end="url(#fig1-idle)"/>
+<rect x="517" y="210" width="64" height="26" rx="7" fill="#ffffff" stroke="#d6d3d1"/><text x="549" y="227" text-anchor="middle" class="t-label">Filter</text>
+<line x1="581" y1="223" x2="591" y2="223" stroke="#a8a29e" stroke-width="1.5" marker-end="url(#fig1-idle)"/>
+<rect x="593" y="210" width="64" height="26" rx="7" fill="#ffffff" stroke="#d6d3d1"/><text x="625" y="227" text-anchor="middle" class="t-label">⋈ probe</text>
+<line x1="657" y1="223" x2="667" y2="223" stroke="#a8a29e" stroke-width="1.5" marker-end="url(#fig1-idle)"/>
+<rect x="669" y="210" width="98" height="26" rx="7" fill="#ffedd5" stroke="#9a3412" stroke-width="1.3"/><text x="718" y="227" text-anchor="middle" class="t-label">有序数据·物化</text>
+<rect x="405" y="304" width="375" height="64" rx="10" fill="#f6f1e7" stroke="#e8e0d4"/>
+<text x="417" y="322" class="t-micro" fill="#9a3412" font-weight="700">P3 · 线程 3</text>
+<rect x="417" y="330" width="104" height="26" rx="7" fill="#ffffff" stroke="#d6d3d1"/><text x="469" y="347" text-anchor="middle" class="t-label">读回有序数据</text>
+<line x1="521" y1="343" x2="531" y2="343" stroke="#a8a29e" stroke-width="1.5" marker-end="url(#fig1-idle)"/>
+<rect x="533" y="330" width="64" height="26" rx="7" fill="#ffffff" stroke="#d6d3d1"/><text x="565" y="347" text-anchor="middle" class="t-label">汇总</text>
+<line x1="597" y1="343" x2="607" y2="343" stroke="#a8a29e" stroke-width="1.5" marker-end="url(#fig1-idle)"/>
+<rect x="609" y="330" width="64" height="26" rx="7" fill="#ffffff" stroke="#d6d3d1"/><text x="641" y="347" text-anchor="middle" class="t-label">输出</text>
+</g>
+<g stroke="#9a3412" stroke-width="1.8" stroke-dasharray="6 4" fill="none">
+<line x1="681" y1="120" x2="625" y2="209" marker-end="url(#fig1-orange)"/>
+<path d="M 718 240 L 718 274 L 469 274 L 469 329" marker-end="url(#fig1-orange)"/>
+</g>
+<text x="694" y="160" class="t-micro" fill="#9a3412">probe 前必须先建好</text>
+<text x="594" y="268" text-anchor="middle" class="t-micro" fill="#9a3412">交给 P3 扫描读回</text>
+<g stroke="#9a3412" stroke-width="1.5" fill="none">
+<line x1="405" y1="388" x2="780" y2="388"/>
+<line x1="405" y1="382" x2="405" y2="394"/>
+<line x1="780" y1="382" x2="780" y2="394"/>
+</g>
+<text x="592" y="410" text-anchor="middle" class="t-sub">三条 pipeline 与查询同生共死：查询开始才建图，查询结束，计划与线程全部销毁</text>
+</svg>
+<figcaption class="fig-caption">左：一棵执行计划树，橙色节点是 pipeline breaker——hash join 的 build 侧与 Sort，数据必须在这里物化才能继续向上。右：沿两个 breaker 切开，得到三条 pipeline，每条是一个独立线程；物化点是流水线之间的交接。三者的寿命完全相同：查询开始时建图，查询结束时销毁。</figcaption>
+</figure>
+
 并行化也在同一框架里完成：Graefe 把 shuffle 包装成一个普通算子（Exchange）插进树里，树内走流水线，跨 exchange 换线程、换机器。今天所有 MPP 引擎的并行执行——包括 OceanBase PX 把计划切成 DFO 分发——本质都是"火山模型 + exchange"。
 
 ### 0.2 输入无界：三个免费假设同时失效
@@ -85,6 +162,60 @@ tags: [flink, timely-dataflow, 并行计算, 递归sql]
 | `close()` 总会到来 | 永不发生，算子必须跨调用保存中间结果 | 状态与恢复（第二、三篇） |
 | 阻塞算子终将吃完输入 | sort、全量聚合永远吃不完 | 窗口与时间范围 |
 | 输入有限，"算完了"是自然事实 | 无法宣布某段时间的答案已经齐了 | 进度消息：标点消息（punctuation）→ watermark / frontier |
+
+<figure class="fig-card">
+<svg class="fig-svg" viewBox="0 0 760 440" role="img" aria-label="上：火山模型的生命周期 open、next 若干次、close，随后是查询结束的明确终点，终点之后计划销毁；下：流系统的生命周期 open 之后记录持续到达，close 以虚线框标注永不发生，下方三个框为状态、窗口、进度三笔债">
+<defs>
+<marker id="fig2-gray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#a8a29e"/></marker>
+</defs>
+<text x="380" y="28" text-anchor="middle" class="t-title">同一段算子代码，两种生命周期</text>
+<text x="380" y="46" text-anchor="middle" class="t-sub">有限输入 vs 无界输入：差别在终点是否已知</text>
+<text x="20" y="92" class="t-label" fill="#9a3412" font-weight="600">火山模型 · 拉</text>
+<text x="20" y="110" class="t-sub">输入有限，执行前已知终点</text>
+<line x1="120" y1="140" x2="660" y2="140" stroke="#e8e0d4" stroke-width="1"/>
+<rect x="128" y="126" width="62" height="28" rx="8" fill="#ffedd5" stroke="#9a3412" stroke-width="1.4"/><text x="159" y="144" text-anchor="middle" class="t-label">open()</text>
+<g fill="#9a3412">
+<circle cx="226" cy="140" r="3"/><circle cx="254" cy="140" r="3"/><circle cx="282" cy="140" r="3"/><circle cx="310" cy="140" r="3"/><circle cx="338" cy="140" r="3"/><circle cx="366" cy="140" r="3"/>
+</g>
+<text x="296" y="122" text-anchor="middle" class="t-micro" fill="#9a3412" font-weight="700">next() × N</text>
+<rect x="400" y="126" width="62" height="28" rx="8" fill="#ffedd5" stroke="#9a3412" stroke-width="1.4"/><text x="431" y="144" text-anchor="middle" class="t-label">close()</text>
+<line x1="500" y1="108" x2="500" y2="172" stroke="#9a3412" stroke-width="2.2"/>
+<text x="500" y="100" text-anchor="middle" class="t-micro" fill="#9a3412" font-weight="700">查询结束</text>
+<rect x="512" y="112" width="200" height="56" rx="10" fill="#f6f1e7" stroke="#e8e0d4"/>
+<text x="612" y="134" text-anchor="middle" class="t-micro">计划销毁 · 资源释放</text>
+<text x="612" y="152" text-anchor="middle" class="t-micro" fill="#57534e">算子不留下任何东西</text>
+<text x="20" y="238" class="t-label" fill="#0f766e" font-weight="600">流系统 · 推</text>
+<text x="20" y="256" class="t-sub">输入无界，没有终点</text>
+<line x1="120" y1="282" x2="728" y2="282" stroke="#e8e0d4" stroke-width="1" marker-end="url(#fig2-gray)"/>
+<rect x="128" y="268" width="62" height="28" rx="8" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.4"/><text x="159" y="286" text-anchor="middle" class="t-label">open()</text>
+<g fill="#0f766e">
+<circle cx="226" cy="282" r="3"/><circle cx="252" cy="282" r="3"/><circle cx="278" cy="282" r="3"/><circle cx="304" cy="282" r="3"/><circle cx="330" cy="282" r="3"/><circle cx="356" cy="282" r="3"/><circle cx="382" cy="282" r="3"/><circle cx="408" cy="282" r="3"/><circle cx="434" cy="282" r="3"/>
+</g>
+<text x="476" y="287" text-anchor="middle" class="t-label" fill="#0f766e">· · ·</text>
+<text x="330" y="264" text-anchor="middle" class="t-micro" fill="#0f766e">记录持续到达，永不停</text>
+<rect x="636" y="268" width="84" height="28" rx="8" fill="#fffdf8" stroke="#0f766e" stroke-width="1.5" stroke-dasharray="5 4"/><text x="678" y="286" text-anchor="middle" class="t-label" fill="#0f766e">close()</text>
+<text x="678" y="258" text-anchor="middle" class="t-micro" fill="#9a3412" font-weight="700">永不发生</text>
+<g stroke="#0f766e" stroke-width="1.2" stroke-dasharray="3 3" fill="none">
+<line x1="250" y1="290" x2="250" y2="328"/>
+<line x1="470" y1="290" x2="470" y2="328"/>
+<line x1="665" y1="290" x2="665" y2="328"/>
+</g>
+<rect x="150" y="330" width="200" height="64" rx="10" fill="#ffffff" stroke="#0f766e" stroke-width="1.3"/>
+<text x="162" y="352" class="t-label" fill="#0f766e" font-weight="600">状态</text>
+<text x="162" y="370" class="t-micro">close() 从不发生</text>
+<text x="162" y="384" class="t-micro">中间结果必须跨调用存活（第二、三篇）</text>
+<rect x="370" y="330" width="200" height="64" rx="10" fill="#ffffff" stroke="#0f766e" stroke-width="1.3"/>
+<text x="382" y="352" class="t-label" fill="#0f766e" font-weight="600">窗口</text>
+<text x="382" y="370" class="t-micro">sort / 全量聚合</text>
+<text x="382" y="384" class="t-micro">永远等不到全部输入</text>
+<rect x="590" y="330" width="150" height="64" rx="10" fill="#ffffff" stroke="#0f766e" stroke-width="1.3"/>
+<text x="602" y="352" class="t-label" fill="#0f766e" font-weight="600">进度</text>
+<text x="602" y="370" class="t-micro">完成必须被制造</text>
+<text x="602" y="384" class="t-micro">punctuation → watermark</text>
+<text x="20" y="424" class="t-micro">时间 →</text>
+</svg>
+<figcaption class="fig-caption">同样的算子，两种生命周期。上（火山）：输入有限，open → next()×N → close 有明确终点；查询结束后计划销毁，算子不留下任何东西。下（流系统）：输入不停，close() 永不发生——这一个事实生出三笔债：状态（中间结果必须跨调用存活）、窗口（阻塞算子永远等不到全部输入）、进度消息（完成必须由 punctuation / watermark 制造出来）。</figcaption>
+</figure>
 
 第三笔债最容易被低估。完成不再自动发生，系统就必须自己制造完成：标点消息是一条控制消息，声明"某时间之前的数据不会再来了"——它是第三篇 watermark 与本篇 §4.2 frontier 的直系祖先。
 
