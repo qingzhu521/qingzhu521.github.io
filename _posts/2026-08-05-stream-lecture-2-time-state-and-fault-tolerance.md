@@ -326,8 +326,8 @@ while let Some(order) = channel.recv() {
 | o3（t=3）后到 | 派生 data_cap@3，发出 o3 | 3≤3 成立，盖 t=3；max_seen 不变，cap 不动 | W1={o1,o2,o3}，合法，不算乱序事故；frontier=3 |
 | o6（t=7） | 派生 data_cap@7，发出 o6 | max_seen=7，`downgrade(&5)`：t=5 以下的计数归零 | frontier=5 → **W1 触发：C=3, GMV=60** |
 | o7（t=8） | 发 o7 | max_seen=8，`downgrade(&6)` | W2={o4,o6,o7}；frontier=6 |
-| …更多订单 | 循环继续 | max_seen≥9，frontier=7 | W2 照旧 |
-| o5（t=6）最后才到 | 想派生 data_cap@6 | 7≤6 不成立：`try_delayed` 返回 `None`，`delayed` 直接 panic | t=6 写不进去了 |
+| …更多订单 | 循环继续读到 ET=9、ET=10 的订单 | max_seen 推到 9，`downgrade(&7)` | frontier=7；W2 照旧 |
+| o5（t=6）最后才到 | 想派生 data_cap@6 | 此时手里的证已经换到 7：`7 ≤ 6` 不成立，`try_delayed` 返回 `None`（`delayed` 直接 panic） | t=6 写不进去了 |
 | 岔路 | `diff.update_at((W2, +50), 新 epoch, +1)`，再 `advance_to`、`flush()` | `update_at` 断言新 epoch 不早于当前 session 时间，把三元组攒进 buffer；`advance_to` 只翻本地时钟；`flush` 才真正发出 | 新 epoch 上多一条 diff：意思是"现在修正过去"，不是把 o5 改到 t=6 |
 
 注意这张表里根本没有"知道 o3 会来"这回事：o3 能进来，靠的不是预知，而是 `downgrade` 推到 3 就停住了——o4 到的时候 frontier 还在 3，旧时间仍然开放。这也是和第 3 章两张推演表的对照点：in-order 架构靠缓冲让 o4 等 o3，out-of-order 的 watermark 靠"最大已见减 2"的猜测推进，Timely 则是**先算、不等、但 frontier 不松口**——o4 的提前计算和 W1 的延期关闭互不干扰。一句话读法：**frontier 没越过之前**，迟到的 o3 想什么时候进来都行；**frontier 一旦越过**，旧时间的通行证作废，o3 只能变成新 epoch 里的一条 diff。
