@@ -472,7 +472,7 @@ OperatorWM = min(LocalWM_1, ..., LocalWM_n)
 
 ### 5.3 按 key 还是按全局
 
-同样的 GMV 聚合，状态可以有两种形状。**按用户统计**：`keyBy(user)` 之后，U1 到 U7 各自的 accumulator 是逻辑上按 key 分区的状态，多个 key 范围可以落到不同物理任务上，并行度随 key 空间扩展，这是第二代系统扩展性的基石。**全局 GMV**：全流一个 accumulator，映射为单个物理任务上的单例状态，所有订单都要经过它，无法分区扩展。非分区状态另有正当用途，比如算子级指标或记录 source 消费的 offset，但它要么管算子局部、要么管全局聚合，都不可扩展，慎用。本例里，按用户聚合时 o5 只影响 U5 那一格状态；全局聚合时它要排队经过全系统唯一的热点。算的是同一笔账，状态的形状决定能不能 scale。
+同样的 GMV 聚合，状态的数据结构可以有两种组织方式。**按用户统计**：`keyBy(user)` 之后，U1 到 U7 各自的 accumulator 是逻辑上按 key 分区的状态，多个 key 范围可以落到不同物理任务上，并行度随 key 空间扩展，这是第二代系统扩展性的基石。**全局 GMV**：全流一个 accumulator，映射为单个物理任务上的单例状态，所有订单都要经过它，无法分区扩展。非分区状态另有正当用途，比如算子级指标或记录 source 消费的 offset，但它要么管算子局部、要么管全局聚合，都不可扩展，慎用。本例里，按用户聚合时 o5 只影响 U5 那一格状态；全局聚合时它要排队经过全系统唯一的热点。算的是同一笔账，状态的形状决定能不能 scale。
 
 ### 5.4 状态管理的粒度
 
@@ -488,7 +488,7 @@ OperatorWM = min(LocalWM_1, ..., LocalWM_n)
 
 由于提交时动作顺序已定，这种方案还附带保证确定性执行。代价是每次输出的提交延迟，靠 WAL、blind write、bloom filter、批量提交这些数据库祖传优化压回去。
 
-**Epoch 级**：把计算切成一段段 epoch，每个 epoch 结束后提交整个任务图的状态。严格两阶段的做法是阶段一处理完整个 epoch、阶段二持久化状态，任务要互相等待，Spark Streaming 的微批（micro-batch）、Trident 的批次事务和 S-Store 的“每 epoch 一个 ACID 事务”都属此类，Drizzle 把多个 epoch 链成一次提交以缓解空等。异步的做法是 Chandy-Lamport 式的一致快照（consistent snapshot）：marker 随数据流插入，切出一致切，不暂停数据流。异步又分两派：非对齐 snapshot 运行时最快，但要把在途数据记入 snapshot，恢复时多一段 redo；对齐 snapshot 在 marker 处阻塞已到达的输入通道直到各通道齐平，提交更慢，恢复快，snapshot 恰好对应一个完整 epoch，还便于在对齐间隙做在线重配置。
+**Epoch 级**：把计算切成一段段 epoch，每个 epoch 结束后提交整个任务图的状态。严格两阶段的做法是阶段一处理完整个 epoch、阶段二持久化状态，任务要互相等待，Spark Streaming 的微批（micro-batch）、Trident 的批次事务和 S-Store 的“每 epoch 一个 ACID 事务”都属此类，Drizzle 把多个 epoch 链成一次提交以缓解空等。异步的做法是 Chandy-Lamport 式的一致快照（consistent snapshot）：marker 随数据流插入，切出一致切面，不暂停数据流。异步又分两派：非对齐 snapshot 运行时最快，但要把在途数据记入 snapshot，恢复时多一段 redo；对齐 snapshot 在 marker 处阻塞已到达的输入通道直到各通道齐平，提交更慢，恢复快，snapshot 恰好对应一个完整 epoch，还便于在对齐间隙做在线重配置。
 
 本例中 Flink 在 o3 处理完后完成 checkpoint #42。用本章的词汇拆开它的成分，恢复状态恰好等于工作状态 snapshot 加输入进度：
 
@@ -521,7 +521,7 @@ Delta(A JOIN B)
 
 无论站在哪种观点，工作状态都活在进程内存或本地状态后端里，进程一死它就没了。所以第二种状态（恢复状态）和第三种（进度）必须存在：这就是下一章，也是第一篇第二个假设被打破的地方。
 
-## 6. 从理想机器到现实机器：无状态可重放，有状态要一致切
+## 6. 从理想机器到现实机器：无状态重放即可，有状态需要快照
 
 第一篇的第二个假设是机器不坏，现在打破它。分三步走，每一步都把问题逼到下一步。
 
@@ -531,7 +531,7 @@ Delta(A JOIN B)
 
 **第三步：所以要把状态和输入位置一起拍下来。** 给“输入位置加全部算子状态”拍 consistent snapshot，机器坏了就从 snapshot 恢复状态、从记录的输入位置 replay。Checkpoint 的存在理由至此才出场：它不是性能优化，是有状态流计算敢承诺正确性的前提。
 
-用第五章的词汇把这一步说精确：checkpoint 拍下的是<span class="term">恢复状态</span>，等于一致切（consistent cut）上的工作状态加输入进度（source offset）。恢复就是把这两样装回去：加载 snapshot、对齐 offset、replay 缺口。而 6.3 要讲的输出提交问题，本质是第三种状态出了错：输出进度（外部世界已经看到了什么）与恢复状态（系统能回滚到哪里）对不上。
+用第五章的词汇把这一步说精确：checkpoint 拍下的是<span class="term">恢复状态</span>，等于一致切面（consistent cut）上的工作状态加输入进度（source offset）。恢复就是把这两样装回去：加载 snapshot、对齐 offset、replay 缺口。而 6.3 要讲的输出提交问题，本质是第三种状态出了错：输出进度（外部世界已经看到了什么）与恢复状态（系统能回滚到哪里）对不上。
 
 ### 6.1 先定义“对了没有”：三档处理语义
 
