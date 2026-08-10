@@ -668,9 +668,169 @@ sum8(a, b, c, d, e, f, g, h)
 
 ### 4.2 逻辑时间：把时间记在数据里
 
-Timely Dataflow 做了相反的选择：不设全局屏障，每个算子收到消息就立即增量计算并继续输出。这样解决了“数据怎样持续向前流动”，却没有解决“外部什么时候可以拿到一个 epoch 的完整答案”。运行时不会打开 join、distinct 或循环算子的业务状态，替它们理解“现在是否已经算完”；它只认识算子按照进度协议公开出来的状态。即使输入端已经结束 epoch `e`，由 `e` 产生的工作仍可能缓存在算子中、飞行在网络上，或者继续沿循环回边传播。下面先看循环怎样把时间写进消息，再解释系统怎样从这些时间的进度状态确认：epoch `e` 的答案以后不会再变。
+Timely Dataflow 做了相反的选择：不设全局屏障，每个算子收到消息就立即增量计算并继续输出。这样解决了“数据怎样持续向前流动”，却没有解决“外部什么时候可以拿到一个 epoch 的完整答案”。运行时不会打开 join、distinct 或循环算子的业务状态，替它们理解“现在是否已经算完”；它只认识算子按照进度协议公开出来的状态。即使输入端已经结束 epoch `e`，由 `e` 产生的工作仍可能缓存在算子中、飞行在网络上，或者继续沿循环回边传播。下面先说清为什么纯异步的系统也要逻辑时间，再依次建立 capability、frontier 与 PointStamp 三块机制，最后沿同一条查询推演：epoch `e` 的答案以后不会再变，是怎样被确认的。
 
-#### 4.2.1 PointStamp（时空坐标）：进入循环，就加一个坐标
+#### 4.2.1 为什么纯异步的系统也要逻辑时间
+
+同步系统里，终止信号是免费的：输入读完了，没有新的计算被触发，整个系统安静下来，答案就在手里。“整个系统不再发生计算”本身就是答案完成的证明，不需要任何额外的协议。
+
+纯异步的系统没有这个信号。每个算子收到消息就立即计算、立即转发，没有谁等谁；于是“此刻所有队列都空了”什么都说明不了。消息可能还在网络上飞，算子可能留着状态下一轮还要发，循环回边里可能还有工作在打转——队列暂时为空只是一个瞬间的局部快照，不是“算完了”。
+
+还是用股权穿透对比。§4.1 的 BSP 版本里，每一轮末尾有一道屏障：屏障收齐时，若这一轮没有产生任何新消息，就判定收敛——“没有新输入”直接就是判据。同一条查询放到异步数据流上，“轮末”这个东西根本不存在：第 2 轮的消息可以和第 1 轮的同时在系统里流动，不同 worker 的进度互不对齐。没有任何一个天然的时刻，能让谁站出来说“到此为止，答案不会再变”。
+
+而我们要的承诺比这更多：不只是“有限输入总会算完”，而是在一条永不结束的无界流上，也能随时宣布“这部分答案已经正确且完整”。这正是逻辑时间要解决的问题，本节余下的部分就是它的构造过程。
+
+假设 source 已经宣布：epoch <code>e</code> 的输入全部发送完毕。这句话只关闭了**外部输入**，并没有关闭由它派生出来的内部工作。某条 <code>e</code> 的消息可能刚进入 join；join 可能把结果发给下一算子；下一算子又可能把结果送回循环。每个算子都在正常地增量计算，但没有任何一个瞬间能让运行时仅凭“当前队列为空”断言整个 epoch 已经结束。
+
+而用户真正需要的是另一条承诺：**这个 epoch 的所有影响已经传播完，当前看到的答案以后不会再改变。** Timely 不靠理解算子内部的业务状态得到这条承诺，而是让所有消息和未来发送权都携带逻辑时间，再从时间的进度状态推导答案是否完整。准确地说，**答案内容由算子增量算出；时间进度不负责计算答案，只负责证明当前答案已经完整。**
+
+先用单个整数时间建立直觉。若某个输入端口的 frontier 已推进到 <code>{f}</code>，就表示这个端口以后只可能收到时间不早于 <code>f</code> 的消息，因此所有 <code>t &lt; f</code> 的输入都已关闭。算子在这些时间上的结果可能早已作为增量向下游流动；frontier 到达 <code>f</code> 并不是此刻才产生结果，而是把“当前结果”升级成一条完成保证：时间 <code>t</code> 的答案已经完整，相关状态可以回收。
+
+只有一个整数时，“早于 <code>f</code>”很好判断。进入二重循环后，时间变成多个坐标，可能出现互不可比的进展方向。为了把同一条完成保证推广到这种情况，运行时才需要比较时间。它要回答的不是“哪条日志先发生”，而是一个与答案完整性直接相关的问题。这个问题先记下，到 4.2.4 再正式回答。
+
+#### 4.2.2 capability：谁还能发
+
+先只看两个算子：A 的输出连到 B 的输入。
+
+<pre><code>算子 A  ────── msg@5 ──────►  算子 B
+  输出端                         输入端</code></pre>
+
+A 收到时间 5 的数据后，不一定马上输出。它可能要等异步请求、等另一个输入，或者把结果留到下一次调度再发。此时网络中可以一条消息都没有，但 A 仍然可能在将来发送时间 5 的数据。为了把这件事告诉运行时，A 必须保留一张“我还可以发送时间 5”的凭证，这就是 <code>cap@5</code>。
+
+所以 **capability 在发送方手里使用**：
+
+- A 以后还要发送时间 5 的数据，就继续持有 <code>cap@5</code>；
+- A 已经处理完时间 5，以后只会发送时间 6 及其后的数据，就把 capability 的时间推进到 <code>cap@6</code>；
+- A 再也不需要发送数据，就释放 capability。
+
+Timely 把第二个操作命名为 <code>downgrade</code>。这里“推进”的是时间，“降级”的是发送权限：<code>cap@5</code> 还能保留发送时间 5 的可能，<code>cap@6</code> 已经放弃了这种权利，所以数字虽然变大，能力反而更弱。
+
+B 关心的是另一件事：**时间 5 的输入是不是已经全部到齐？** B 不应该逐个检查所有上游算子持有什么 capability，也不应该只看自己的队列是否暂时为空。Timely 把所有上游 capability 和仍在路上的消息汇总成 B 输入端口的 frontier，B 只需要观察这条收件进度。
+
+所以 **frontier 在接收方用来判断输入进度**。例如 B 的 frontier 从 <code>{5}</code> 推进到 <code>{6}</code>，表示时间 5 的数据已经全部收完，不会再来。B 这时才能确认时间 5 的结果完整，或者清理时间 5 的状态。
+
+两者不是二选一，也不是同一份状态的两个名字：
+
+| 角色 | 它回答的问题 | 谁来操作 |
+| --- | --- | --- |
+| capability | “我以后还能发送哪个时间的数据？” | 输出数据的算子持有、把时间推进（<code>downgrade</code>）或释放 |
+| frontier | “这个输入端口已经收完哪些时间的数据？” | 运行时计算，接收数据的算子读取 |
+
+许多简单的 <code>map</code>、<code>filter</code> 收到数据就立即输出，不需要把 capability 留到以后，也不需要主动查看 frontier。需要延迟输出的算子才要保存 capability；需要等一个时间的输入全部到齐，例如窗口、聚合、状态回收或循环不动点判断，才要观察 frontier。
+
+同一个有状态算子经常两者都用。以时间 5 的窗口聚合为例：
+
+1. 窗口还在收数据时，算子保存 <code>cap@5</code>，给自己保留稍后发送窗口结果的权利；
+2. 算子观察输入 frontier；当它越过 5，说明窗口 5 的输入已经全部收完；
+3. 算子用 <code>cap@5</code> 发送最终聚合结果，然后释放它，或者把它的时间推进到更晚。
+
+这里，frontier 决定“什么时候可以结束等待”，capability 决定“结束等待后还能不能把结果发在时间 5”。
+
+上面只出现了 <code>downgrade</code>。它还有一个姊妹操作 <code>delayed</code>，差别在旧证的去向：<code>downgrade(&t)</code> 是**换发销底**——旧时间的那张凭证作废，手里只剩更晚时间的一张；<code>delayed(&t)</code> 是**复印留底**——旧时间的证继续保留，额外多复印一张更晚时间的。还需要在旧时间发数据、又想为新时间做准备时，用 <code>delayed</code>；确定不再发旧时间的数据了，才用 <code>downgrade</code>。
+
+为什么要把这两个操作分得这么清？因为运行时判断“时间 t 完没完”，靠的是数一数外面还有几张 t 的证；证的来源必须管死，这个数才可信。合法来源只有四种：
+
+| 合法来源 | 是什么 | 旧的还在吗 |
+| --- | --- | --- |
+| <code>input.capability()</code> | 建图时系统发的第一张证（最小时间），一切的起点 | — |
+| <code>cap.delayed(&amp;t)</code> | 从已有的证复印一张到更晚时间 | 在（留底） |
+| <code>cap.downgrade(&amp;t)</code> | 从已有的证换发一张到更晚时间 | 不在（销底） |
+| 算子内 <code>retain()</code> | 把刚收到的消息自带的证，转成自己输出口的证 | 在 |
+
+规则只有一条：**任何证都能追根到系统发的第一张，且只能沿时间向前传。** 没有凭空造证，也没有往过去发证——所以“frontier 越过 t”才等于“t 真的完了”。
+
+#### 4.2.3 frontier：下游怎么知道收完了
+
+**用一条消息看清两者怎样接上。**
+
+1. A 持有 <code>cap@5</code>。即使还没有消息，A 将来仍可能发送时间 5，因此 B 不能说时间 5 已经收完。
+2. A 发送一条 <code>msg@5</code>，随后释放 <code>cap@5</code>。B 的 frontier 仍不能推进，因为这条消息还在网络里或 B 的输入队列中。
+3. B 消费了最后一条 <code>msg@5</code>，同时也没有其他算子保留能产生时间 5 的 capability。到这时，时间 5 才真正收完，B 的 frontier 才能越过 5。
+
+这条因果关系可以记成一句话：
+
+> **上游用 capability 说明“我还可能发”；下游用 frontier 判断“我已经收完”。**
+
+这条 frontier 不是谁广播给 B 的，而是从上游还没放掉的 capability 和还在路上的消息里**数**出来的最小时间：只要有一张 t 的证没放、一条 t 的消息没消费完，frontier 就越不过 t。下面看这本账具体怎么记。
+
+frontier 本身不会作为一条控制消息从 A 复制给 B。运行时记录的是各个位置、各个时间还有多少份“未完成证据”：持有 capability 算一份，尚未消费的消息也算一份。创建或复制 capability、发送消息会增加相应计数，释放 capability、消费消息会减少相应计数；降级 capability 则是旧时间减一、新时间加一。
+
+这里没有一个中央控制系统订阅所有算子的数据。算子和数据通道旁的运行时代码会自动记下 capability、消息产生和消息消费带来的计数增减；算子业务代码只需正确地保留、推进或释放 capability，不需要另外发送“我完成了”的控制消息。
+
+每个 worker 先把本地计数变化攒成一批，再由 <code>Progcaster</code> 通过独立的进度通道广播给同一 scope 的其他 worker。广播的不是业务数据，也不是整个 frontier，而是 <code>(位置, 时间, 计数增减)</code>。每个 worker 收到各方变化后，都在本地运行 reachability tracker：先找出各位置仍有正计数的最早 pointstamp，再沿数据流路径推导它们对目标端口意味着哪些时间下界。普通边不改变时间；feedback、<code>enter</code> 和 <code>leave</code> 会按照路径改变循环时间。目标端口用 <code>MutableAntichain</code> 只保留这些下界中逐坐标最小、互相不可比较的点，这才是该端口的 frontier。
+
+算子可以声明自己是否关心某个输入的 frontier 变化：<code>Never</code>、<code>IfCapability</code> 或 <code>Always</code>。这更接近“订阅”，但它只决定 frontier 改变时要不要唤醒该算子；即使算子选择 <code>Never</code>，运行时仍然会维护这个端口的 frontier。
+
+<figure class="fig-card" id="frontier-propagation">
+<svg class="fig-svg" viewBox="0 0 760 470" role="img" aria-label="frontier 不直接沿数据边传递。capability 和消息的产生、消费形成带位置与时间的计数增减，跨 worker 汇总后沿路径摘要传播，目标端口从正计数时间的最小反链重新计算 frontier。">
+<defs>
+<marker id="prop-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#0f766e"/></marker>
+<marker id="prop-purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#6d28d9"/></marker>
+<marker id="prop-gray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#57534e"/></marker>
+</defs>
+<text x="28" y="28" class="t-title">frontier 不是复制给下游，而是在每个位置重新算出来</text>
+
+<text x="42" y="62" class="t-sub" font-weight="700">数据面：消息正常流动</text>
+<rect x="42" y="78" width="142" height="58" rx="10" fill="#ffffff" stroke="#0f766e" stroke-width="1.3"/>
+<text x="113" y="101" text-anchor="middle" class="t-label">算子 A · output</text>
+<text x="113" y="122" text-anchor="middle" class="t-micro">持有 cap@5</text>
+<rect x="298" y="78" width="142" height="58" rx="10" fill="#ffffff" stroke="#0f766e" stroke-width="1.3"/>
+<text x="369" y="101" text-anchor="middle" class="t-label">网络中的 msg@5</text>
+<text x="369" y="122" text-anchor="middle" class="t-micro">尚未被消费</text>
+<rect x="554" y="78" width="164" height="58" rx="10" fill="#ffffff" stroke="#0f766e" stroke-width="1.3"/>
+<text x="636" y="101" text-anchor="middle" class="t-label">算子 B · input</text>
+<text x="636" y="122" text-anchor="middle" class="t-micro">收到后增量计算</text>
+<line x1="184" y1="107" x2="294" y2="107" stroke="#0f766e" stroke-width="2" marker-end="url(#prop-teal)"/>
+<line x1="440" y1="107" x2="550" y2="107" stroke="#0f766e" stroke-width="2" marker-end="url(#prop-teal)"/>
+
+<line x1="24" y1="158" x2="736" y2="158" stroke="#e7e5e4"/>
+<text x="42" y="184" class="t-sub" font-weight="700">进度跟踪：算子和通道旁的运行时代码自动记账</text>
+
+<rect x="42" y="202" width="170" height="100" rx="11" fill="#fafaf9" stroke="#57534e" stroke-width="1.2"/>
+<text x="58" y="226" class="t-label">本 worker 累计变化</text>
+<text x="58" y="250" class="t-micro">A.out：cap@5　+1 / -1</text>
+<text x="58" y="272" class="t-micro">B.in：msg@5　+1 / -1</text>
+<text x="58" y="292" class="t-micro">只报告增加或减少，不传整个 frontier</text>
+
+<rect x="250" y="202" width="164" height="100" rx="11" fill="#f0fdfa" stroke="#0f766e" stroke-width="1.2"/>
+<text x="332" y="226" text-anchor="middle" class="t-label">worker 之间广播</text>
+<text x="332" y="252" text-anchor="middle" class="t-micro">Progcaster 交换计数变化</text>
+<text x="332" y="274" text-anchor="middle" class="t-micro">各 worker 收到后各自计算</text>
+<text x="332" y="294" text-anchor="middle" class="t-micro">没有中央控制器，也不是屏障</text>
+
+<rect x="452" y="202" width="126" height="100" rx="11" fill="#ffffff" stroke="#57534e" stroke-width="1.2"/>
+<text x="515" y="226" text-anchor="middle" class="t-label">沿数据流换算</text>
+<text x="515" y="252" text-anchor="middle" class="t-micro">普通边：t → t</text>
+<text x="515" y="274" text-anchor="middle" class="t-micro">feedback：t → t+1</text>
+<text x="515" y="294" text-anchor="middle" class="t-micro">enter / leave：压入 / 弹出</text>
+
+<rect x="616" y="202" width="102" height="100" rx="11" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.3"/>
+<text x="667" y="226" text-anchor="middle" class="t-label" fill="#6d28d9">目标端口</text>
+<text x="667" y="252" text-anchor="middle" class="t-micro">找出还没结束的</text>
+<text x="667" y="274" text-anchor="middle" class="t-micro">最早时间</text>
+<text x="667" y="294" text-anchor="middle" class="t-label" fill="#6d28d9">得到 frontier</text>
+
+<line x1="212" y1="252" x2="246" y2="252" stroke="#57534e" stroke-width="1.8" marker-end="url(#prop-gray)"/>
+<line x1="414" y1="252" x2="448" y2="252" stroke="#57534e" stroke-width="1.8" marker-end="url(#prop-gray)"/>
+<line x1="578" y1="252" x2="612" y2="252" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#prop-purple)"/>
+
+<text x="42" y="338" class="t-sub" font-weight="700">为什么释放 capability 后 frontier 还可能不动</text>
+<rect x="42" y="354" width="208" height="74" rx="10" fill="#ffffff" stroke="#e7e5e4" stroke-width="1.2"/>
+<text x="146" y="380" text-anchor="middle" class="t-label">① cap@5 +1</text>
+<text x="146" y="406" text-anchor="middle" class="t-micro">A 仍可能发送，frontier 被 5 支撑</text>
+<rect x="276" y="354" width="208" height="74" rx="10" fill="#ffffff" stroke="#e7e5e4" stroke-width="1.2"/>
+<text x="380" y="380" text-anchor="middle" class="t-label">② 发送 msg@5；随后释放 cap</text>
+<text x="380" y="406" text-anchor="middle" class="t-micro">消息仍在途，5 的正计数仍未归零</text>
+<rect x="510" y="354" width="208" height="74" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/>
+<text x="614" y="380" text-anchor="middle" class="t-label" fill="#6d28d9">③ B 消费最后一条 msg@5</text>
+<text x="614" y="406" text-anchor="middle" class="t-micro">5 的计数归零，frontier 才能推进</text>
+<line x1="250" y1="391" x2="272" y2="391" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#prop-purple)"/>
+<line x1="484" y1="391" x2="506" y2="391" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#prop-purple)"/>
+</svg>
+<figcaption class="fig-caption">数据边负责传递业务记录；进度通道在 worker 之间广播“哪个位置、哪个时间增加或减少了几份未完成证据”。没有中央控制器订阅所有数据，每个 worker 都根据收到的计数变化更新自己的 reachability tracker，再为各输入端口算出 frontier。对应到 Timely 代码，这条链路是 <code>SharedProgress → Progcaster → reachability tracker → MutableAntichain</code>。</figcaption>
+</figure>
+
+#### 4.2.4 PointStamp：一个整数不够的时候
 
 先用一个坐标：给每条消息标上它属于第几轮，够吗？对单个循环够了。但真实计算里循环外面还有循环：输入一批接一批到来（批与批之间是 epoch），每一批内部可能要做迭代（iteration），迭代里面还可能再嵌套迭代。一个整数分不清"第 2 批的第 3 轮"和"第 3 批的第 2 轮"。
 
@@ -678,9 +838,9 @@ Timely 的办法是：**时间戳不是一个数，而是一个坐标序列**。
 
 这个结构和函数调用栈有很强的对应关系，但不能说成实现上的“完全同构”。函数调用时，栈帧保存返回位置和局部环境；Timely 进入一层嵌套 scope 时，PointStamp（时空坐标）把逻辑时间、嵌套层级和数据流位置带进消息与进度记录。调用一层函数，可以类比为压入一个坐标；返回一层 scope，可以类比为弹出一个坐标。时间坐标的长度对应嵌套深度，每个坐标记录相应层的局部 iteration。
 
-更本质地说，这是一种**把控制上下文数据化**的方法。递归调用中原本藏在调用栈里的“当前在哪一层、下一步还可能产生什么”，不再只由调用者的控制流维护，而是编码进数据携带的逻辑时间和位置中。于是 feedback 不只是一条回边，它还把“这是第几次进入这个循环”的信息带回去；frontier 也不需要某个全局调用者直接宣布“函数返回了”，而是结合消息、capability 和 progress tracking，判断更早的工作是否还可能出现。
+更本质地说，这是一种**把控制上下文数据化**的方法：坐标就是递归深度的显式化——原本藏在调用栈里的“当前在哪一层、下一步还可能产生什么”，被编码进数据携带的逻辑时间和位置中。于是 frontier 不需要某个全局调用者直接宣布“函数返回了”，它结合消息、capability 和 progress tracking，自己判断更早的工作是否还可能出现。
 
-严格地说，并不是完整的函数运行状态都被压缩进中间结果集：业务状态、arrangement、scheduler 仍然是运行时需要维护的东西。被数据化的是与递归上下文和进度有关的那一部分。这也正是它与函数式编程的相通之处，但“没有控制流，只有数据流”只能描述编程模型，不能理解为运行时真的没有控制流。运行时仍然有 scheduler、worker 和 progress tracking；只是业务计算不再依赖一条隐藏的命令式调用链来表达递归状态，而是让数据、时间和位置沿 dataflow 传播，算子根据收到的数据组合出下一步结果。
+严格地说，被数据化的只是与递归上下文和进度有关的那一部分；业务状态、arrangement、scheduler 仍由运行时维护。这也正是它与函数式编程的相通之处，但“没有控制流，只有数据流”描述的只是编程模型——运行时仍然有 scheduler、worker 和 progress tracking，只是递归状态不再依赖一条隐藏的命令式调用链，而是随数据、时间和位置沿 dataflow 传播。
 
 写法上注意，坐标是**扁平的序列**，不是嵌套的二元组：顶层 scope 里时间戳就是 `3`；进入 iterate 后变成 `(3, 0)`；再嵌套一层循环就是 `(3, 0, 0)`。每进入一层作用域，在末尾追加一个坐标；离开时弹出。由此得到一个重要事实：**iterate 之外的算子看不到 iteration 坐标**——无论下游还接着多少算子，它们收到的时间戳只有 `3`，轮次被完整封装在作用域内部。
 
@@ -814,18 +974,10 @@ Timely 的办法是：**时间戳不是一个数，而是一个坐标序列**。
 <line x1="456" y1="580" x2="476" y2="580" stroke="#9a3412" stroke-width="2" stroke-dasharray="5 3"/><text x="484" y="589">BSP 屏障（不存在）</text>
 </g>
 </svg>
-<figcaption class="fig-caption">逻辑视图：时间戳的分层只存在于 iterate scope 内部——输入为 t=3，进入时压入坐标变成 (3,0)，内部按 (3,0)…(3,3) 分阶段（每层标出真实数据），离开时弹出坐标，下游算子只见 t=3。物理视图：同一批消息分布在三个 worker 上按物理时间并行处理——每条消息到达即触发下一条计算（细箭头；红色虚线是产生重复消息的触发），戊@(3,3) 在 (3,2) 的最后一条重复消息到达之前就已开工；紫色标记表示各 worker 提交的局部进度计数，它们持续汇总，却不要求 worker 在物理时间上对齐。橙色虚线是 BSP 会设置的屏障位置，这张图里不存在。下一节再解释这些计数如何变成可靠的完成判定。</figcaption>
+<figcaption class="fig-caption">逻辑视图：时间戳的分层只存在于 iterate scope 内部——输入为 t=3，进入时压入坐标变成 (3,0)，内部按 (3,0)…(3,3) 分阶段（每层标出真实数据），离开时弹出坐标，下游算子只见 t=3。物理视图：同一批消息分布在三个 worker 上按物理时间并行处理——每条消息到达即触发下一条计算（细箭头；红色虚线是产生重复消息的触发），戊@(3,3) 在 (3,2) 的最后一条重复消息到达之前就已开工；紫色标记表示各 worker 提交的局部进度计数，它们持续汇总，却不要求 worker 在物理时间上对齐。橙色虚线是 BSP 会设置的屏障位置，这张图里不存在。这些计数如何变成可靠的完成判定，正是上一节的主题。</figcaption>
 </figure>
 
-#### 4.2.2 输入结束不等于答案完成：系统如何感知 epoch 已完成
-
-假设 source 已经宣布：epoch <code>e</code> 的输入全部发送完毕。这句话只关闭了**外部输入**，并没有关闭由它派生出来的内部工作。某条 <code>e</code> 的消息可能刚进入 join；join 可能把结果发给下一算子；下一算子又可能把结果送回循环。每个算子都在正常地增量计算，但没有任何一个瞬间能让运行时仅凭“当前队列为空”断言整个 epoch 已经结束。
-
-而用户真正需要的是另一条承诺：**这个 epoch 的所有影响已经传播完，当前看到的答案以后不会再改变。** Timely 不靠理解算子内部的业务状态得到这条承诺，而是让所有消息和未来发送权都携带逻辑时间，再从时间的进度状态推导答案是否完整。准确地说，**答案内容由算子增量算出；时间进度不负责计算答案，只负责证明当前答案已经完整。**
-
-先用单个整数时间建立直觉。若某个输入端口的 frontier 已推进到 <code>{f}</code>，就表示这个端口以后只可能收到时间不早于 <code>f</code> 的消息，因此所有 <code>t &lt; f</code> 的输入都已关闭。算子在这些时间上的结果可能早已作为增量向下游流动；frontier 到达 <code>f</code> 并不是此刻才产生结果，而是把“当前结果”升级成一条完成保证：时间 <code>t</code> 的答案已经完整，相关状态可以回收。
-
-只有一个整数时，“早于 <code>f</code>”很好判断。进入二重循环后，时间变成多个坐标，可能出现互不可比的进展方向。为了把同一条完成保证推广到这种情况，运行时才需要比较时间。它要回答的不是“哪条日志先发生”，而是一个与答案完整性直接相关的问题：
+有了坐标，就可以回到 4.2.1 记下的那个问题，把它说得精确些：
 
 > **某项尚未结束的工作，沿数据流继续执行后，还可能影响目标端口上的时间 <code>t</code> 吗？**
 
@@ -933,132 +1085,7 @@ Timely 的办法是：**时间戳不是一个数，而是一个坐标序列**。
 
 到这里我们只解决了“怎样判断一项工作会不会影响目标时间”。还缺最后一块：运行时怎样知道这些尚未结束的工作确实存在，以及怎样把大量工作压缩成算子能使用的完成边界。
 
-#### 4.2.3 一个负责“还能发”，一个负责“已经收完”：Capability 与 frontier
-
-先只看两个算子：A 的输出连到 B 的输入。
-
-<pre><code>算子 A  ────── msg@5 ──────►  算子 B
-  输出端                         输入端</code></pre>
-
-A 收到时间 5 的数据后，不一定马上输出。它可能要等异步请求、等另一个输入，或者把结果留到下一次调度再发。此时网络中可以一条消息都没有，但 A 仍然可能在将来发送时间 5 的数据。为了把这件事告诉运行时，A 必须保留一张“我还可以发送时间 5”的凭证，这就是 <code>cap@5</code>。
-
-所以 **capability 在发送方手里使用**：
-
-- A 以后还要发送时间 5 的数据，就继续持有 <code>cap@5</code>；
-- A 已经处理完时间 5，以后只会发送时间 6 及其后的数据，就把 capability 的时间推进到 <code>cap@6</code>；
-- A 再也不需要发送数据，就释放 capability。
-
-Timely 把第二个操作命名为 <code>downgrade</code>。这里“推进”的是时间，“降级”的是发送权限：<code>cap@5</code> 还能保留发送时间 5 的可能，<code>cap@6</code> 已经放弃了这种权利，所以数字虽然变大，能力反而更弱。
-
-B 关心的是另一件事：**时间 5 的输入是不是已经全部到齐？** B 不应该逐个检查所有上游算子持有什么 capability，也不应该只看自己的队列是否暂时为空。Timely 把所有上游 capability 和仍在路上的消息汇总成 B 输入端口的 frontier，B 只需要观察这条收件进度。
-
-所以 **frontier 在接收方用来判断输入进度**。例如 B 的 frontier 从 <code>{5}</code> 推进到 <code>{6}</code>，表示时间 5 的数据已经全部收完，不会再来。B 这时才能确认时间 5 的结果完整，或者清理时间 5 的状态。
-
-两者不是二选一，也不是同一份状态的两个名字：
-
-| 角色 | 它回答的问题 | 谁来操作 |
-| --- | --- | --- |
-| capability | “我以后还能发送哪个时间的数据？” | 输出数据的算子持有、把时间推进（<code>downgrade</code>）或释放 |
-| frontier | “这个输入端口已经收完哪些时间的数据？” | 运行时计算，接收数据的算子读取 |
-
-许多简单的 <code>map</code>、<code>filter</code> 收到数据就立即输出，不需要把 capability 留到以后，也不需要主动查看 frontier。需要延迟输出的算子才要保存 capability；需要等一个时间的输入全部到齐，例如窗口、聚合、状态回收或循环不动点判断，才要观察 frontier。
-
-同一个有状态算子经常两者都用。以时间 5 的窗口聚合为例：
-
-1. 窗口还在收数据时，算子保存 <code>cap@5</code>，给自己保留稍后发送窗口结果的权利；
-2. 算子观察输入 frontier；当它越过 5，说明窗口 5 的输入已经全部收完；
-3. 算子用 <code>cap@5</code> 发送最终聚合结果，然后释放它，或者把它的时间推进到更晚。
-
-这里，frontier 决定“什么时候可以结束等待”，capability 决定“结束等待后还能不能把结果发在时间 5”。
-
-**用一条消息看清两者怎样接上。**
-
-1. A 持有 <code>cap@5</code>。即使还没有消息，A 将来仍可能发送时间 5，因此 B 不能说时间 5 已经收完。
-2. A 发送一条 <code>msg@5</code>，随后释放 <code>cap@5</code>。B 的 frontier 仍不能推进，因为这条消息还在网络里或 B 的输入队列中。
-3. B 消费了最后一条 <code>msg@5</code>，同时也没有其他算子保留能产生时间 5 的 capability。到这时，时间 5 才真正收完，B 的 frontier 才能越过 5。
-
-这条因果关系可以记成一句话：
-
-> **上游用 capability 说明“我还可能发”；下游用 frontier 判断“我已经收完”。**
-
-#### 4.2.4 Timely 怎样从 capability 和在途消息算出 frontier
-
-frontier 本身不会作为一条控制消息从 A 复制给 B。运行时记录的是各个位置、各个时间还有多少份“未完成证据”：持有 capability 算一份，尚未消费的消息也算一份。创建或复制 capability、发送消息会增加相应计数，释放 capability、消费消息会减少相应计数；降级 capability 则是旧时间减一、新时间加一。
-
-这里没有一个中央控制系统订阅所有算子的数据。算子和数据通道旁的运行时代码会自动记下 capability、消息产生和消息消费带来的计数增减；算子业务代码只需正确地保留、推进或释放 capability，不需要另外发送“我完成了”的控制消息。
-
-每个 worker 先把本地计数变化攒成一批，再由 <code>Progcaster</code> 通过独立的进度通道广播给同一 scope 的其他 worker。广播的不是业务数据，也不是整个 frontier，而是 <code>(位置, 时间, 计数增减)</code>。每个 worker 收到各方变化后，都在本地运行 reachability tracker：先找出各位置仍有正计数的最早 pointstamp，再沿数据流路径推导它们对目标端口意味着哪些时间下界。普通边不改变时间；feedback、<code>enter</code> 和 <code>leave</code> 会按照路径改变循环时间。目标端口用 <code>MutableAntichain</code> 只保留这些下界中逐坐标最小、互相不可比较的点，这才是该端口的 frontier。
-
-算子可以声明自己是否关心某个输入的 frontier 变化：<code>Never</code>、<code>IfCapability</code> 或 <code>Always</code>。这更接近“订阅”，但它只决定 frontier 改变时要不要唤醒该算子；即使算子选择 <code>Never</code>，运行时仍然会维护这个端口的 frontier。
-
-<figure class="fig-card" id="frontier-propagation">
-<svg class="fig-svg" viewBox="0 0 760 470" role="img" aria-label="frontier 不直接沿数据边传递。capability 和消息的产生、消费形成带位置与时间的计数增减，跨 worker 汇总后沿路径摘要传播，目标端口从正计数时间的最小反链重新计算 frontier。">
-<defs>
-<marker id="prop-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#0f766e"/></marker>
-<marker id="prop-purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#6d28d9"/></marker>
-<marker id="prop-gray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#57534e"/></marker>
-</defs>
-<text x="28" y="28" class="t-title">frontier 不是复制给下游，而是在每个位置重新算出来</text>
-
-<text x="42" y="62" class="t-sub" font-weight="700">数据面：消息正常流动</text>
-<rect x="42" y="78" width="142" height="58" rx="10" fill="#ffffff" stroke="#0f766e" stroke-width="1.3"/>
-<text x="113" y="101" text-anchor="middle" class="t-label">算子 A · output</text>
-<text x="113" y="122" text-anchor="middle" class="t-micro">持有 cap@5</text>
-<rect x="298" y="78" width="142" height="58" rx="10" fill="#ffffff" stroke="#0f766e" stroke-width="1.3"/>
-<text x="369" y="101" text-anchor="middle" class="t-label">网络中的 msg@5</text>
-<text x="369" y="122" text-anchor="middle" class="t-micro">尚未被消费</text>
-<rect x="554" y="78" width="164" height="58" rx="10" fill="#ffffff" stroke="#0f766e" stroke-width="1.3"/>
-<text x="636" y="101" text-anchor="middle" class="t-label">算子 B · input</text>
-<text x="636" y="122" text-anchor="middle" class="t-micro">收到后增量计算</text>
-<line x1="184" y1="107" x2="294" y2="107" stroke="#0f766e" stroke-width="2" marker-end="url(#prop-teal)"/>
-<line x1="440" y1="107" x2="550" y2="107" stroke="#0f766e" stroke-width="2" marker-end="url(#prop-teal)"/>
-
-<line x1="24" y1="158" x2="736" y2="158" stroke="#e7e5e4"/>
-<text x="42" y="184" class="t-sub" font-weight="700">进度跟踪：算子和通道旁的运行时代码自动记账</text>
-
-<rect x="42" y="202" width="170" height="100" rx="11" fill="#fafaf9" stroke="#57534e" stroke-width="1.2"/>
-<text x="58" y="226" class="t-label">本 worker 累计变化</text>
-<text x="58" y="250" class="t-micro">A.out：cap@5　+1 / -1</text>
-<text x="58" y="272" class="t-micro">B.in：msg@5　+1 / -1</text>
-<text x="58" y="292" class="t-micro">只报告增加或减少，不传整个 frontier</text>
-
-<rect x="250" y="202" width="164" height="100" rx="11" fill="#f0fdfa" stroke="#0f766e" stroke-width="1.2"/>
-<text x="332" y="226" text-anchor="middle" class="t-label">worker 之间广播</text>
-<text x="332" y="252" text-anchor="middle" class="t-micro">Progcaster 交换计数变化</text>
-<text x="332" y="274" text-anchor="middle" class="t-micro">各 worker 收到后各自计算</text>
-<text x="332" y="294" text-anchor="middle" class="t-micro">没有中央控制器，也不是屏障</text>
-
-<rect x="452" y="202" width="126" height="100" rx="11" fill="#ffffff" stroke="#57534e" stroke-width="1.2"/>
-<text x="515" y="226" text-anchor="middle" class="t-label">沿数据流换算</text>
-<text x="515" y="252" text-anchor="middle" class="t-micro">普通边：t → t</text>
-<text x="515" y="274" text-anchor="middle" class="t-micro">feedback：t → t+1</text>
-<text x="515" y="294" text-anchor="middle" class="t-micro">enter / leave：压入 / 弹出</text>
-
-<rect x="616" y="202" width="102" height="100" rx="11" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.3"/>
-<text x="667" y="226" text-anchor="middle" class="t-label" fill="#6d28d9">目标端口</text>
-<text x="667" y="252" text-anchor="middle" class="t-micro">找出还没结束的</text>
-<text x="667" y="274" text-anchor="middle" class="t-micro">最早时间</text>
-<text x="667" y="294" text-anchor="middle" class="t-label" fill="#6d28d9">得到 frontier</text>
-
-<line x1="212" y1="252" x2="246" y2="252" stroke="#57534e" stroke-width="1.8" marker-end="url(#prop-gray)"/>
-<line x1="414" y1="252" x2="448" y2="252" stroke="#57534e" stroke-width="1.8" marker-end="url(#prop-gray)"/>
-<line x1="578" y1="252" x2="612" y2="252" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#prop-purple)"/>
-
-<text x="42" y="338" class="t-sub" font-weight="700">为什么释放 capability 后 frontier 还可能不动</text>
-<rect x="42" y="354" width="208" height="74" rx="10" fill="#ffffff" stroke="#e7e5e4" stroke-width="1.2"/>
-<text x="146" y="380" text-anchor="middle" class="t-label">① cap@5 +1</text>
-<text x="146" y="406" text-anchor="middle" class="t-micro">A 仍可能发送，frontier 被 5 支撑</text>
-<rect x="276" y="354" width="208" height="74" rx="10" fill="#ffffff" stroke="#e7e5e4" stroke-width="1.2"/>
-<text x="380" y="380" text-anchor="middle" class="t-label">② 发送 msg@5；随后释放 cap</text>
-<text x="380" y="406" text-anchor="middle" class="t-micro">消息仍在途，5 的正计数仍未归零</text>
-<rect x="510" y="354" width="208" height="74" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/>
-<text x="614" y="380" text-anchor="middle" class="t-label" fill="#6d28d9">③ B 消费最后一条 msg@5</text>
-<text x="614" y="406" text-anchor="middle" class="t-micro">5 的计数归零，frontier 才能推进</text>
-<line x1="250" y1="391" x2="272" y2="391" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#prop-purple)"/>
-<line x1="484" y1="391" x2="506" y2="391" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#prop-purple)"/>
-</svg>
-<figcaption class="fig-caption">数据边负责传递业务记录；进度通道在 worker 之间广播“哪个位置、哪个时间增加或减少了几份未完成证据”。没有中央控制器订阅所有数据，每个 worker 都根据收到的计数变化更新自己的 reachability tracker，再为各输入端口算出 frontier。对应到 Timely 代码，这条链路是 <code>SharedProgress → Progcaster → reachability tracker → MutableAntichain</code>。</figcaption>
-</figure>
+这最后一块，记账机制与单个整数时完全一样，只是时间换成了坐标。
 
 上面的 A → B 是一条直线。放进二重循环后，两者的用法没有变化：**可能向循环入口 P 继续发送数据的分支持有 capability，P 则通过自己的 frontier 判断某一轮数据是否已经收完。** 唯一多出来的步骤，是运行时必须先把各条路径上的 capability 和消息换算成它们到达 P 时的时间。
 
