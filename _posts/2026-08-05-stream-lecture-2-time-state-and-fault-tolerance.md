@@ -457,9 +457,9 @@ OperatorWM = min(LocalWM_1, ..., LocalWM_n)
 | distinct | 已见 key 的集合或近似结构 | TTL/版本边界/业务声明允许忘记时 |
 | Differential join | 两侧 arrangement 与尚未 compact 的时间差分 | frontier 允许合并历史时间差异时 |
 
-### 5.2 归谁管：同一个累加器的四个主人
+### 5.2 状态归谁管：四个时代四种答案
 
-同一个 W1 accumulator，在不同的系统里有不同的主人：
+同一个 W1 accumulator，在四个时代的系统里归不同的角色管理：
 
 | 时代 | 状态的主人 | 本例中的样子 |
 | --- | --- | --- |
