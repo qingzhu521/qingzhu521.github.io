@@ -279,37 +279,41 @@ pointstamp 不是独立的 punctuation，而是附着在每个元组上的 `(时
 | o5 的命运 | 越界拒收 | 拒收 | 取决于输入端的进度声明 |
 | 循环数据流 | 不支持 | punctuation 模型在环中互相等待，死锁 | 原生支持 |
 
-### 4.5 机制到系统：Flink、Storm、Timely
+### 4.5 从 Storm 到 Timely：进度机制一代比一代精确
 
-**Flink：low-watermark 的工程化。** 常见的 bounded-out-of-orderness 策略在每个 source 分区上维护：
+前面三个机制是工具箱；要看它们被哪个系统采用、为什么，得按系统的演进讲。每一代系统不是为了炫技术，而是补上上一代留下的具体窟窿。
+
+**① Storm（第一代）：先保证"消息没丢"，但不管"时间到哪了"。** Storm 要解决最朴素的问题：一条源消息被展开成成千上万个 tuple，分散到各台机器处理，怎么保证它们都被算到了、没有丢。答案是用 XOR acker 做 tuple tree 的完成检测，配可靠 spout 超时重放，拿到 at-least-once（第 6 章细讲）。但它回答的是"这条源消息派生的工作确认完了吗"——一个**消息级**的问题；它没有"事件时间推进到哪儿"的概念，也没有窗口何时该关的说法。后来的 Windowing API 用 lag（一种 heartbeat）补出一个很粗的事件时间窗口，那是补丁，不是核心。**它留下的窟窿**：只有消息确认，没有窗口进度。
+
+**② Spark Streaming：用"切批"粗粒度地补上进度。** Spark Streaming 换了条路：不把流当一条条数据，而是切成一个个 micro-batch。一批之内数据是有限的、一起到的，"这批算完了"就是天然的进度信号——就像有界流免费得来的"文件结尾"（第 1 章那个完整性证明）。于是它不需要 watermark。**它留下的窟窿**：输出延迟是批级的，由 batch interval 决定；批边界按"到达时间"切、不按"事件时间"切，对乱序和事件时间语义支持很弱。要低延迟、要逐事件、要事件时间，微批就力不从心了。
+
+**③ Flink：要逐事件低延迟，就必须有 watermark。** Flink 不切批，真正来一条算一条。可这样一来，就没有"批结束"这个免费信号了，必须自己回答"过去完整到哪"——于是 watermark 成了核心。常见的 bounded-out-of-orderness 策略在每个 source 分区上维护：
 
 ```text
 LocalWM_i = MaxEventTime_i - B
 ```
 
-B 是允许的乱序幅度，取 B=2 时，4.2 那张表的每一步就是 Flink 单分区下的行为。这个公式恰好揭示了二者的关系：**减号后面那个 B 就是内嵌的 slack，减号前面会随数据动的 `MaxEventTime` 才是低水位线的游标**——所以 Flink watermark 本质是低水位线，只是在游标里嵌了一个 slack。多分区时，算子对所有活跃输入通道取最小值：
+B 是允许的乱序幅度，取 B=2 时，4.2 那张表的每一步就是 Flink 单分区下的行为。这个公式恰好揭示了机制的分层：**减号后面那个 B 就是内嵌的 slack，减号前面会随数据动的 `MaxEventTime` 才是低水位线的游标**——所以 Flink watermark 本质是低水位线，只是游标里嵌了一个 slack。多分区时，算子对所有活跃输入通道取最小值：
 
 ```text
 OperatorWM = min(LocalWM_1, ..., LocalWM_n)
 ```
 
-这里不存在放在中心节点里的“全作业唯一 Watermark”；每个算子实例根据自己的活跃输入各自计算，进度逐层传播。一路输入停住就拖住全局，所以还需要 idleness 机制把长期无数据的分区暂时排除。Watermark 作为控制消息随数据流传播，不会越过排在自己前面的元组。
+这里不存在"全作业唯一"的中心 Watermark；每个算子实例根据自己的活跃输入各自计算，进度逐层传播。一路输入停住会拖住全局，所以要 idleness 把长期无数据的分区暂时排除；watermark 随数据流传播，不会越过排在自己前面的元组。**它留下的窟窿**：watermark 是"估算"出来的（那个 B 是拍的安全边际），声明的其实是"我猜不会再有更早的了"；而且它是标量、沿 punctuation 传，遇到循环（feedback 回边）就死锁（4.3 讲过）。
 
-**Storm：先回答另一个问题。** 经典 Storm 的核心机制不是事件时间进度，而是对 tuple tree 的完成检测：acker 不保存整棵树，只维护所有创建与确认的 tuple id 的 XOR，归零即完成；超时由可靠 spout replay，配齐 anchoring 后得到 at-least-once。这套协议回答“从某条源消息展开的所有工作是否已被确认”，它不回答“t=5 之前的数据是否到齐”。Storm 的 Windowing API 曾经提供过基于 lag 的事件时间窗口，但 heartbeat 这种源端承诺已经不是现在主流系统处理进度的主要方式；经典 Storm core 仍然只负责消息完成和重放。
+**④ Timely / Naiad：连估算都不要，精确追踪。** Timely 把"未来还可能出现哪些逻辑时间的工作"直接算出来：每条元组带 `(时间戳, 位置)` 的 pointstamp，系统汇总成 frontier。不需要 slack，原生支持循环和嵌套——这就是 4.3 的精确账；第一篇的股权穿透迭代也是在这套 `(epoch, iteration)` 坐标下跑的。代价是实现和理解门槛更高，所以它主要是研究系统，而 Flink 把"估算式 watermark"做成了工程主流。
 
-**Timely/Naiad：pointstamp 与 frontier。** 如 4.3 所示，逻辑时间、capability、pointstamp、frontier 四层协议给出精确进度，循环数据流是它的主场。Timely 把无界输入切成 `(epoch, iteration)` 的坐标——第一篇的股权穿透迭代就是在这套坐标下跑的，用的正是这套东西。
+| 维度 | Storm | Spark Streaming | Flink | Timely/Naiad |
+| --- | --- | --- | --- | --- |
+| 进度的载体 | 消息确认（ack） | 批边界 | 估算式 watermark | 精确 frontier |
+| "过去算完了吗"怎么判 | 源消息派生的工作都 ack 完 | 一批处理结束 | watermark 越过窗口末端 | frontier 越过对应逻辑时间 |
+| 本例的 o3 落到哪 | 无事件时间窗口，只保证被处理 | 按到达时间落入某 micro-batch | watermark 内收下 | 必然被等待 |
+| 循环 / 嵌套 | 无通用偏序进度模型 | 批内无循环概念 | 环中互相等待，易死锁 | 原生支持 |
 
-| 维度 | Storm | Flink | Timely/Naiad |
-| --- | --- | --- | --- |
-| 核心进度问题 | tuple tree 是否处理完成 | 事件时间推进到哪里 | 未来还可能出现哪些逻辑时间的工作 |
-| 本例 o3 | Windowing lag 内收下 | Watermark 内收下 | frontier 必然等待 |
-| 循环 | 无通用偏序进度模型 | watermark 由 punctuation 承载，反馈环中同样互相等待 | frontier 原生处理嵌套与循环 |
-| 故障恢复 | 超时 replay；Trident 事务 | Checkpoint + source replay | Naiad 另有一致 checkpoint，与 frontier 正交 |
-
-三种机制的表达方式逐渐严谨：Slack 用固定范围容忍乱序，low-watermark 用系统进度推进，pointstamp/frontier 用逻辑时间和数据流位置描述仍可能发生的工作。表达越精确，实现和理解成本越高。
+沿这四个系统看下来，进度机制在同一条轴上变精确：Storm 只有消息确认，Spark 用批边界当粗进度，Flink 用估算式水印（低水位线 + slack），Timely 用精确前沿。每前进一步，能表达的场景越复杂，代价也越高。
 
 <div class="callout callout--insight">
-<p><strong>归因</strong>：这一节回答“系统凭什么宣布过去已经完整”。三种机制的取舍不同：Slack 简单但依赖固定参数，low-watermark 需要系统维护进度，pointstamp/frontier 表达最精确但实现和理解成本更高。</p>
+<p><strong>归因</strong>：这一节回答"系统凭什么宣布过去完整"。四代系统在同一条轴上往前爬：从消息确认，到批边界，到估算式水印（低水位线 + slack），到精确前沿。每前进一步，都补掉了上一代"说不清过去完整到哪"的具体窟窿，也各自付出新的代价。</p>
 </div>
 
 可是再准的进度界也不是物理定律：越界的数据总会来。下一笔订单 o8 到达时，窗口已经输出过了，怎么办？
