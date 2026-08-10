@@ -277,35 +277,22 @@ pointstamp 不是独立的 punctuation，而是附着在每个元组上的 `(时
 
 但有一个边界必须说清：这种精确只对已经纳入逻辑时间协议的内部计算成立。o5 的事件时间来自手机，是外部世界的事实；输入端仍然要自己决定何时宣布“t=6 之前的输入已完整”。一旦宣布，后来补到的更小 epoch 数据就没有别的出路，只能作为更晚逻辑时间上的撤回或更新来表达——它只能触发修订，这正是 4.6 要讲的。
 
-同一份订单流在 Timely 里从头到尾走一遍（源端用 UnorderedInput，允许同时握着多个时间的 capability）：
+同一份订单流在 Timely 里从头到尾走一遍。源端用 UnorderedInput（允许同时握着多个时间的 capability）；每一行都带上代码内部实际发生的动作（依据 timely-dataflow 与 differential-dataflow 的源码）：
 
-| 步骤 | 发生了什么 | 代码层面 | 系统状态 |
-| --- | --- | --- | --- |
-| 1 | o1、o2 到达 | 源端 `send(o1)`、`send(o2)` | W1={o1,o2}；frontier 跟着输入时间走 |
-| 2 | 源端想推进时间，但 o3 还没来 | 继续握着 cap3，同时派生出 cap5（`try_delayed`） | frontier 停在 3：t=3 还可能来数据 |
-| 3 | o4 先到了 | `session(&cap5).give(o4)` | o4 计入 W2={o4}——先算，不等 o3 |
-| 4 | o3 随后才到 | `session(&cap3).give(o3)` | o3 计入 W1={o1,o2,o3}，合法，不算乱序事故 |
-| 5 | 源端确认 10:03 之前没有数据了 | 释放 cap3（drop） | 时间 3 的计数归零 |
-| 6 | 后续批次推进，frontier 越过 5 | （窗口算子的通知此刻才交付） | **W1 触发：C=3, GMV=60** |
-| 7 | o6、o7 到达 | 正常 `send` | W2={o4,o6,o7} |
-| 8 | 很久以后 o5 才到 | 两条岔路：cap6 还握着就正常进 W2；已经放掉且 frontier 过了 6，就写不进 t=6，只能 `update_at(..., 新 epoch, +1)` 发一条修订 | 岔路 A：W2 收下 o5；岔路 B：新 epoch 上表达“现在修正过去” |
+| 步骤 | 事件 | 代码调用 | 代码内部实际做了什么 | 系统状态 |
+| --- | --- | --- | --- | --- |
+| 1 | o1、o2 到达 | `send(o1)`、`send(o2)` | API 没有时间参数，消息被打上当前 `now_at`（1 和 2）；pusher 的 Counter 在 ChangeBatch 里记 produced +1@1、+1@2 | W1={o1,o2}；frontier 跟着输入时间走 |
+| 2 | 源端想推进时间，但 o3 还没来 | 继续握着 cap3，同时 `cap3.try_delayed(&5)` 派生出 cap5 | `try_delayed` 只允许向未来派生：检查 3≤5 成立，给 t=5 的计数 +1，t=3 的 +1 保持不动 | frontier 停在 3——t=3 的计数没归零，系统认为 t=3 还可能来数据 |
+| 3 | o4 先到了 | `session(&cap5).give(o4)` | `Progress::give` 只做一次指针比对，确认 cap5 属于这个输出口，**不查时间大小**；消息盖 t=5 发出 | o4 计入 W2={o4}——先算，不等 o3；frontier 仍停在 3 |
+| 4 | o3 随后才到 | `session(&cap3).give(o3)` | 同样只校验 cap3 有效；消息盖 t=3 发出 | o3 计入 W1={o1,o2,o3}，合法，不算乱序事故；frontier 仍停在 3 |
+| 5 | 源端确认 10:03 之前没有数据了 | 释放 cap3（drop） | `Capability::drop` 把 t=3 的计数 −1，归零；reachability tracker 用 MutableAntichain 重算最小未归零时间 | frontier 越过 3 |
+| 6 | 后续批次继续推进，frontier 越过 5 | 释放 cap5 | t=5 的计数归零；frontier 越过 5 后，窗口算子的完成通知才被交付（所有输入 frontier 都不小于 6） | **W1 触发：C=3, GMV=60** |
+| 7 | o6、o7 到达 | `send(o6)`、`send(o7)` | 盖 t=7、t=8 | W2={o4,o6,o7} |
+| 8a | 很久以后 o5 才到，cap6 还握着 | `session(&cap6).give(o5)` | 与第 4 步同理：capability 有效就能发 | W2 收下 o5 |
+| 8b | 或者：cap6 早放了，frontier 已经过了 6 | 想补造旧时间通行证：`cap8.try_delayed(&6)` | 8≤6 不成立，返回 `None`；改用 `delayed(&6)` 会直接 panic | t=6 写不进去了 |
+| 9 | 岔路 B 的唯一出路 | `session.update_at((W2, +50), 新 epoch, +1)`，再 `advance_to(新 epoch)`、`flush()` | `update_at` 先断言新 epoch 不早于当前 session 时间，把三元组攒进 buffer；`advance_to` 只翻本地时钟；`flush` 才真正 `send_batch` 发出批次并推进 handle | 新 epoch 上多一条 diff：意思是"现在修正过去"，不是把 o5 改到 t=6 |
 
-这张表值得和第 3 章的两张推演表对读：in-order 架构靠缓冲让 o4 等 o3，out-of-order 的 watermark 靠“最大已见减 2”的猜测推进，Timely 则是**先算、不等、但 frontier 不松口**——o4 的提前计算和 W1 的延期关闭互不干扰。
-
-把这张过程表拆开看 API，每个调用对应的行为如下（依据 timely-dataflow 与 differential-dataflow 的源码）：
-
-| 代码调用 | 在本例里实际发生什么 |
-| --- | --- |
-| `input.send(o4)` | 输入端时钟已经推进到 5，o4 只能盖着 t=5 进 W2——想把它写成 t=3，API 里根本没有这个时间参数 |
-| `input.advance_to(6)` | 宣布"5 之前的输入已完整"：旧时间的进度计数归零，frontier 越过 5；此后 t=3 再也写不进来（倒退直接 panic） |
-| 上游还握着 cap3 | o4@5 到了可以先算进 W2，但 frontier 卡在 3：W1 不许关，o3 随时可以进来 |
-| o3 处理完，释放 cap3 | 时间 3 的计数归零，frontier 越过 3，W1 触发：**C=3, GMV=60** |
-| `cap5.try_delayed(&3)` | frontier 过了 3 之后想补造一张 t=3 的通行证——返回 `None`，用 `delayed` 会直接 panic |
-| `input.for_each_time(...)` | 算子只把这一轮激活里已经拉到本地的几个批次按时间整理一下；o3 在别的批次后到，它管不着，也不等 |
-| `session.update_at(W1 += 30, 当前 epoch, +1)` | frontier 已经过了 3、o3 才姗姗来迟：在新 epoch 上写一条修订——是"现在修正过去"，不是把 o3 改到 t=5 |
-| `session.advance_to(6)` 后 `flush()` | `advance_to` 只是把本地时钟翻到 6；`flush()` 才把这条修订批次真正发出去、推向 W1 的下游 |
-
-一句话读法：**frontier 没越过之前**，握着 cap3，o3 想什么时候进来都行，o4 先算也不算排序；**frontier 一旦越过**，旧时间的通行证作废，o3 只能变成新 epoch 里的一条 diff。
+这张表值得和第 3 章的两张推演表对读：in-order 架构靠缓冲让 o4 等 o3，out-of-order 的 watermark 靠"最大已见减 2"的猜测推进，Timely 则是**先算、不等、但 frontier 不松口**——o4 的提前计算和 W1 的延期关闭互不干扰。一句话读法：**frontier 没越过之前**，握着 cap3，o3 想什么时候进来都行；**frontier 一旦越过**，旧时间的通行证作废，o3 只能变成新 epoch 里的一条 diff。
 
 ### 4.4 三种机制对比
 
