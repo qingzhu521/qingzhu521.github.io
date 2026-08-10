@@ -277,18 +277,20 @@ pointstamp 不是独立的 punctuation，而是附着在每个元组上的 `(时
 
 但有一个边界必须说清：这种精确只对已经纳入逻辑时间协议的内部计算成立。o5 的事件时间来自手机，是外部世界的事实；输入端仍然要自己决定何时宣布“t=6 之前的输入已完整”。一旦宣布，后来补到的更小 epoch 数据就没有别的出路，只能作为更晚逻辑时间上的撤回或更新来表达——它只能触发修订，这正是 4.6 要讲的。
 
-把 Timely 的行为翻成实现层的几句话，就是下面这张表：
+把 Timely 的实现代码翻译成人话，就是下面这张表（基于 timely-dataflow 与 differential-dataflow 的源码）：
 
-| 问题 | Timely 的答案 | 靠什么 |
-| --- | --- | --- |
-| 是不是在入口排序？ | 不是：o4@5 先到了就先算，o3@3 后到再算 | 每条数据自带逻辑时间，正确性靠 frontier 判断完成性，不靠物理顺序 |
-| 旧时间还能进数据吗？ | 能，只要还握着这个时间的 capability | 握着 cap3，frontier 就停在 3，o3 随时可以进来 |
-| frontier 越过旧时间之后呢？ | 不能，旧时间不可重新打开 | capability 只能向更晚时间派生，放掉旧的就要不回来 |
-| 那已经发布的结果怎么改？ | 在更晚的 epoch 里写一条 diff：撤旧值、补新值 | 新 epoch 的意思是"现在修正过去"，不是把原事件改成新时间 |
+| 调用 | 实际行为 |
+| --- | --- |
+| `input.send(data)` | 永远打上当前时间 `now_at`，API 里根本没有时间参数——想往旧时间写，没有入口 |
+| `input.advance_to(t)` | 先断言 `t` 不早于当前时间，倒退直接 panic；然后关闭旧 epoch（旧时间进度计数 −1），在新时间 +1 |
+| 握着一个 capability | 对应时间在进度计数里 +1；只要还有一个没释放，frontier 就过不去 |
+| 释放一个 capability | 对应时间 −1；计数归零后 frontier 才能越过 |
+| `cap.try_delayed(t)` | 只能往**更晚**的时间派生 capability；往早派生返回 `None`（用 `delayed` 则直接 panic） |
+| `input.for_each_time(...)` | 只把一次算子激活里**已经拉到本地**的几个批次按时间排一下，是局部整理，不是全局排序 |
+| `session.update_at(d, t, diff)` | 断言 `t` 不早于当前 session 时间；迟到修订写成 `(数据, 更晚 epoch, diff)`：撤旧值 −1、补新值 +1 |
+| `session.advance_to(t)` 后 `flush()` | `advance_to` 只动本地时钟；`flush` 才把缓冲的批次真正发出去并推进 frontier |
 
-<div class="callout callout--insight">
-<p><strong>归因</strong>：这一节回答“循环和嵌套计算怎么知道算完了”。pointstamp 把“未来还可能出现什么”算成一条精确下界：不排序、不估算、不空转，代价是每条数据都要带时间、每个算子都要老实参与进度协议。入口排序和 slack 都不在这条路上。</p>
-</div>
+读法就两句：**frontier 没越过之前**，握着旧时间的 capability，o3 想什么时候进来都行——o4@5 可以先算，不算排序；**frontier 一旦越过**，旧时间的 capability 已经归零，派生不出来了，这时候 o3 只能以新 epoch 的 diff 形式出现，表达“现在修正过去”。
 
 ### 4.4 三种机制对比
 
