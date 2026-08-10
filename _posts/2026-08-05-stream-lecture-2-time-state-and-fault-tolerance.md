@@ -277,20 +277,20 @@ pointstamp 不是独立的 punctuation，而是附着在每个元组上的 `(时
 
 但有一个边界必须说清：这种精确只对已经纳入逻辑时间协议的内部计算成立。o5 的事件时间来自手机，是外部世界的事实；输入端仍然要自己决定何时宣布“t=6 之前的输入已完整”。一旦宣布，后来补到的更小 epoch 数据就没有别的出路，只能作为更晚逻辑时间上的撤回或更新来表达——它只能触发修订，这正是 4.6 要讲的。
 
-把 Timely 的实现代码翻译成人话，就是下面这张表（基于 timely-dataflow 与 differential-dataflow 的源码）：
+把 Timely 的实现代码落到本例上，就是下面这张表（依据 timely-dataflow 与 differential-dataflow 的源码）：
 
-| 调用 | 实际行为 |
+| 代码调用 | 在本例里实际发生什么 |
 | --- | --- |
-| `input.send(data)` | 永远打上当前时间 `now_at`，API 里根本没有时间参数——想往旧时间写，没有入口 |
-| `input.advance_to(t)` | 先断言 `t` 不早于当前时间，倒退直接 panic；然后关闭旧 epoch（旧时间进度计数 −1），在新时间 +1 |
-| 握着一个 capability | 对应时间在进度计数里 +1；只要还有一个没释放，frontier 就过不去 |
-| 释放一个 capability | 对应时间 −1；计数归零后 frontier 才能越过 |
-| `cap.try_delayed(t)` | 只能往**更晚**的时间派生 capability；往早派生返回 `None`（用 `delayed` 则直接 panic） |
-| `input.for_each_time(...)` | 只把一次算子激活里**已经拉到本地**的几个批次按时间排一下，是局部整理，不是全局排序 |
-| `session.update_at(d, t, diff)` | 断言 `t` 不早于当前 session 时间；迟到修订写成 `(数据, 更晚 epoch, diff)`：撤旧值 −1、补新值 +1 |
-| `session.advance_to(t)` 后 `flush()` | `advance_to` 只动本地时钟；`flush` 才把缓冲的批次真正发出去并推进 frontier |
+| `input.send(o4)` | 输入端时钟已经推进到 5，o4 只能盖着 t=5 进 W2——想把它写成 t=3，API 里根本没有这个时间参数 |
+| `input.advance_to(6)` | 宣布"5 之前的输入已完整"：旧时间的进度计数归零，frontier 越过 5；此后 t=3 再也写不进来（倒退直接 panic） |
+| 上游还握着 cap3 | o4@5 到了可以先算进 W2，但 frontier 卡在 3：W1 不许关，o3 随时可以进来 |
+| o3 处理完，释放 cap3 | 时间 3 的计数归零，frontier 越过 3，W1 触发：**C=3, GMV=60** |
+| `cap5.try_delayed(&3)` | frontier 过了 3 之后想补造一张 t=3 的通行证——返回 `None`，用 `delayed` 会直接 panic |
+| `input.for_each_time(...)` | 算子只把这一轮激活里已经拉到本地的几个批次按时间整理一下；o3 在别的批次后到，它管不着，也不等 |
+| `session.update_at(W1 += 30, 当前 epoch, +1)` | frontier 已经过了 3、o3 才姗姗来迟：在新 epoch 上写一条修订——是"现在修正过去"，不是把 o3 改到 t=5 |
+| `session.advance_to(6)` 后 `flush()` | `advance_to` 只是把本地时钟翻到 6；`flush()` 才把这条修订批次真正发出去、推向 W1 的下游 |
 
-读法就两句：**frontier 没越过之前**，握着旧时间的 capability，o3 想什么时候进来都行——o4@5 可以先算，不算排序；**frontier 一旦越过**，旧时间的 capability 已经归零，派生不出来了，这时候 o3 只能以新 epoch 的 diff 形式出现，表达“现在修正过去”。
+一句话读法：**frontier 没越过之前**，握着 cap3，o3 想什么时候进来都行，o4 先算也不算排序；**frontier 一旦越过**，旧时间的通行证作废，o3 只能变成新 epoch 里的一条 diff。
 
 ### 4.4 三种机制对比
 
