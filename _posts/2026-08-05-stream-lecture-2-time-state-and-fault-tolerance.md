@@ -277,20 +277,59 @@ pointstamp 不是独立的 punctuation，而是附着在每个元组上的 `(时
 
 但有一个边界必须说清：这种精确只对已经纳入逻辑时间协议的内部计算成立。o5 的事件时间来自手机，是外部世界的事实；输入端仍然要自己决定何时宣布“t=6 之前的输入已完整”。一旦宣布，后来补到的更小 epoch 数据就没有别的出路，只能作为更晚逻辑时间上的撤回或更新来表达——它只能触发修订，这正是 4.6 要讲的。
 
-同一份订单流在 Timely 里从头到尾走一遍。源端用 UnorderedInput（允许同时握着多个时间的 capability）；每一行都带上代码内部实际发生的动作（依据 timely-dataflow 与 differential-dataflow 的源码）：
+同一份订单流在 Timely 里从头到尾走一遍。先把这段示意程序完整摆出来（基于 timely-dataflow 的 UnorderedInput；窗口聚合两行是示意，其余 API 与源码一一对应），再逐行走读：
 
-| 步骤 | 事件 | 代码调用 | 代码内部实际做了什么 | 系统状态 |
-| --- | --- | --- | --- | --- |
-| 1 | o1、o2 到达 | `send(o1)`、`send(o2)` | API 没有时间参数，消息被打上当前 `now_at`（1 和 2）；pusher 的 Counter 在 ChangeBatch 里记 produced +1@1、+1@2 | W1={o1,o2}；frontier 跟着输入时间走 |
-| 2 | 源端想推进时间，但 o3 还没来 | 继续握着 cap3，同时 `cap3.try_delayed(&5)` 派生出 cap5 | `try_delayed` 只允许向未来派生：检查 3≤5 成立，给 t=5 的计数 +1，t=3 的 +1 保持不动 | frontier 停在 3——t=3 的计数没归零，系统认为 t=3 还可能来数据 |
-| 3 | o4 先到了 | `session(&cap5).give(o4)` | `Progress::give` 只做一次指针比对，确认 cap5 属于这个输出口，**不查时间大小**；消息盖 t=5 发出 | o4 计入 W2={o4}——先算，不等 o3；frontier 仍停在 3 |
-| 4 | o3 随后才到 | `session(&cap3).give(o3)` | 同样只校验 cap3 有效；消息盖 t=3 发出 | o3 计入 W1={o1,o2,o3}，合法，不算乱序事故；frontier 仍停在 3 |
-| 5 | 源端确认 10:03 之前没有数据了 | 释放 cap3（drop） | `Capability::drop` 把 t=3 的计数 −1，归零；reachability tracker 用 MutableAntichain 重算最小未归零时间 | frontier 越过 3 |
-| 6 | 后续批次继续推进，frontier 越过 5 | 释放 cap5 | t=5 的计数归零；frontier 越过 5 后，窗口算子的完成通知才被交付（所有输入 frontier 都不小于 6） | **W1 触发：C=3, GMV=60** |
-| 7 | o6、o7 到达 | `send(o6)`、`send(o7)` | 盖 t=7、t=8 | W2={o4,o6,o7} |
-| 8a | 很久以后 o5 才到，cap6 还握着 | `session(&cap6).give(o5)` | 与第 4 步同理：capability 有效就能发 | W2 收下 o5 |
-| 8b | 或者：cap6 早放了，frontier 已经过了 6 | 想补造旧时间通行证：`cap8.try_delayed(&6)` | 8≤6 不成立，返回 `None`；改用 `delayed(&6)` 会直接 panic | t=6 写不进去了 |
-| 9 | 岔路 B 的唯一出路 | `session.update_at((W2, +50), 新 epoch, +1)`，再 `advance_to(新 epoch)`、`flush()` | `update_at` 先断言新 epoch 不早于当前 session 时间，把三元组攒进 buffer；`advance_to` 只翻本地时钟；`flush` 才真正 `send_batch` 发出批次并推进 handle | 新 epoch 上多一条 diff：意思是"现在修正过去"，不是把 o5 改到 t=6 |
+```rust
+// ---- 建图：源端允许同时握着多个时间的 capability ----
+let mut input = worker.dataflow(|scope| {
+    let (handle, stream) = scope.new_unordered_input::<Order>();
+    stream.map(|o| (window_of(o.event_time), o.amount))
+          .sum_by_window();        // 示意：§3 的 W1/W2 窗口聚合
+    handle
+});
+
+// ---- 时间线开始 ----
+let cap3 = input.capability().delayed(&3);   // o3 还没到：先握着 t=3 的通行证
+let cap5 = cap3.try_delayed(&5).unwrap();    // 派生 t=5：只允许向未来派生
+
+input.session(&cap1).give(o1);   // W1 ← o1
+input.session(&cap2).give(o2);   // W1 ← o1, o2
+input.session(&cap5).give(o4);   // o4 先到：W2 ← o4——先算，不等 o3
+input.session(&cap3).give(o3);   // o3 后到：W1 ← o1, o2, o3——合法
+
+drop(cap3);   // 源端确认 10:03 前没有数据了
+drop(cap5);   // frontier 越过 5 → W1 触发：C=3, GMV=60
+
+input.session(&cap7).give(o6);   // W2 ← o4, o6
+input.session(&cap8).give(o7);   // W2 ← o4, o6, o7
+
+// 很久以后，o5 才姗姗来迟——两条岔路：
+if cap6 还握着 {
+    input.session(&cap6).give(o5);            // 岔路 A：正常进 W2
+} else {
+    // cap8.try_delayed(&6) 返回 None：8 ≤ 6 不成立，不能倒着派生
+    diff.update_at((W2, +50), new_epoch, +1); // 岔路 B：在新 epoch 写一条修订
+    diff.advance_to(new_epoch);
+    diff.flush();                             // 这一步才真正发出去
+}
+```
+
+逐行走读这张表：
+
+| 代码行 | 内部实际做了什么 | 此刻系统状态 |
+| --- | --- | --- |
+| `capability().delayed(&3)` | ChangeBatch 里 t=3 的计数 +1；它不归零，frontier 就到不了 4 | frontier 停在 3：t=3 还可能来数据 |
+| `cap3.try_delayed(&5)` | 只许向未来派生：检查 3≤5 成立，t=5 计数 +1，t=3 的 +1 保持不动 | frontier 仍停在 3 |
+| `session(&cap1/2).give(o1/o2)` | 消息盖 t=1、t=2；pusher 的 Counter 记 produced +1@1、+1@2 | W1={o1,o2} |
+| `session(&cap5).give(o4)` | `Progress::give` 只做一次指针比对（这张 cap 属于这个输出口），**不比时间大小**；o4 盖 t=5 发出 | W2={o4}；frontier 仍停在 3 |
+| `session(&cap3).give(o3)` | 同样只校验 cap3 有效；o3 盖 t=3 发出 | W1={o1,o2,o3}，合法，不算乱序事故 |
+| `drop(cap3)` | `Capability::drop` 把 t=3 的计数 −1 归零；tracker 重算最小未归零时间 | frontier 越过 3 |
+| `drop(cap5)` | t=5 的计数归零；所有输入 frontier 都不小于 6 后，窗口算子的完成通知才交付 | **W1 触发：C=3, GMV=60** |
+| `session(&cap7/8).give(o6/o7)` | 盖 t=7、t=8 | W2={o4,o6,o7} |
+| 岔路 A：`session(&cap6).give(o5)` | cap6 还握着就能发，与 o3 那行同理 | W2 收下 o5 |
+| 岔路 B：`cap8.try_delayed(&6)` | 8≤6 不成立，返回 `None`；换 `delayed(&6)` 会直接 panic | t=6 写不进去了 |
+| 岔路 B：`update_at((W2, +50), 新 epoch, +1)` | 断言新 epoch 不早于当前 session 时间；把 `(数据, 时间, diff)` 三元组攒进 buffer | 缓冲里多一条 diff |
+| 岔路 B：`advance_to` + `flush()` | `advance_to` 只翻本地时钟；`flush` 才 `send_batch` 发出批次并推进 handle | 新 epoch 上的修订生效："现在修正过去"，不是把 o5 改到 t=6 |
 
 这张表值得和第 3 章的两张推演表对读：in-order 架构靠缓冲让 o4 等 o3，out-of-order 的 watermark 靠"最大已见减 2"的猜测推进，Timely 则是**先算、不等、但 frontier 不松口**——o4 的提前计算和 W1 的延期关闭互不干扰。一句话读法：**frontier 没越过之前**，握着 cap3，o3 想什么时候进来都行；**frontier 一旦越过**，旧时间的通行证作废，o3 只能变成新 epoch 里的一条 diff。
 
