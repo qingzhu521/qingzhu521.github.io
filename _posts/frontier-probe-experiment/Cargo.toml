@@ -1,0 +1,7 @@
+[package]
+name = "probe_nested"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+timely = { git = "https://github.com/TimelyDataflow/timely-dataflow", package = "timely" }
