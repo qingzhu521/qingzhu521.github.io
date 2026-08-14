@@ -1,0 +1,1067 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>从数据库看流计算｜Flink 执行模型与一致性机制</title>
+<style>
+:root{
+  --paper:#fbf8f3; --ink:#1c1917; --sub:#57534e; --muted:#a8a29e;
+  --line:#e8e0d4; --card:#ffffff;
+  --orange:#9a3412; --orange-bg:#ffedd5; --teal:#0f766e; --teal-bg:#eefaf7;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{height:100%;background:#171412;overflow:hidden;
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue","Segoe UI","Microsoft YaHei",sans-serif;}
+#viewport{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;}
+#deck{width:1280px;height:720px;position:relative;flex:none;transform-origin:center center;}
+.slide{position:absolute;inset:0;background:var(--paper);color:var(--ink);
+  padding:54px 72px 60px;display:none;flex-direction:column;}
+.slide.active{display:flex;}
+.kicker{font-size:14px;letter-spacing:.24em;color:var(--orange);font-weight:700;}
+h1{font-size:40px;margin:10px 0 6px;font-weight:800;}
+.lede{font-size:19px;color:var(--sub);}
+.body{flex:1;display:flex;align-items:center;justify-content:center;min-height:0;width:100%;}
+.fig{width:100%;height:100%;display:flex;align-items:center;justify-content:center;}
+.fig svg{max-width:100%;max-height:100%;}
+.punch{margin-top:14px;padding:12px 18px;border-left:4px solid var(--orange);
+  background:#fff; border-radius:0 12px 12px 0; font-size:20px;font-weight:600;line-height:1.5;}
+.punch b{color:var(--orange);}
+.foot{position:absolute;bottom:20px;left:72px;right:72px;display:flex;
+  justify-content:space-between;font-size:12px;color:var(--muted);}
+#bar{position:fixed;top:0;left:0;height:3px;background:var(--orange);z-index:10;transition:width .25s;}
+#num{position:fixed;bottom:14px;right:20px;color:#8a8177;font-size:13px;z-index:10;}
+#mobileHint{display:none;}
+@media (max-width:900px) and (orientation:portrait){
+  #mobileHint{display:block;position:fixed;top:42px;left:50%;transform:translateX(-50%);z-index:20;
+    padding:7px 12px;border:1px solid rgba(251,248,243,.35);border-radius:999px;
+    color:#fbf8f3;background:rgba(28,25,23,.9);font-size:12px;white-space:nowrap;}
+}
+.cols{display:flex;gap:26px;width:100%;align-items:stretch;}
+.card{flex:1;background:var(--card);border:1px solid var(--line);border-radius:14px;
+  padding:22px 24px;box-shadow:0 1px 3px rgba(28,25,23,.05);}
+.card h3{font-size:21px;margin-bottom:10px;}
+.card h3 .no{display:inline-block;min-width:30px;height:30px;line-height:30px;text-align:center;
+  border-radius:9px;background:var(--orange-bg);color:var(--orange);font-size:16px;margin-right:8px;}
+.card p{font-size:16.5px;color:var(--sub);line-height:1.65;}
+.card .wall{margin-top:12px;font-size:15px;color:var(--orange);font-weight:600;}
+.dbtag{margin-top:14px;padding:10px 16px;border-left:4px solid var(--teal);background:var(--teal-bg);
+  border-radius:0 12px 12px 0;font-size:16.5px;line-height:1.55;color:#134e4a;}
+.dbtag b{color:var(--teal);}
+.chips{display:flex;gap:14px;flex-wrap:wrap;}
+.chip{padding:8px 18px;border-radius:999px;background:#fff;border:1px solid var(--line);
+  font-size:16px;color:var(--sub);}
+.chip b{color:var(--orange);}
+table.cmp{width:100%;border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden;
+  box-shadow:0 1px 3px rgba(28,25,23,.06);font-size:17px;}
+table.cmp th{background:#f6f1e7;text-align:left;padding:11px 16px;font-size:16px;color:var(--sub);}
+table.cmp td{padding:11px 16px;border-top:1px solid var(--line);line-height:1.5;vertical-align:top;}
+table.cmp td:first-child{font-weight:700;white-space:nowrap;color:var(--orange);}
+.sqlcard{background:#1c1917;border-radius:14px;padding:18px 26px;margin:18px 0 4px;width:100%;}
+.sqlcard pre{margin:0;font-family:"SF Mono",Menlo,Consolas,monospace;font-size:17px;line-height:1.7;color:#e7e5e4;white-space:pre-wrap;}
+.sqlcard .k{color:#fdba74;} .sqlcard .f{color:#5eead4;} .sqlcard .c{color:#a8a29e;}
+.sqltag{font-size:14px;color:var(--sub);margin-top:6px;}
+.big{font-size:30px;font-weight:800;line-height:1.6;text-align:center;}
+.big .o{color:var(--orange);} .big .t{color:var(--teal);}
+.center{text-align:center;width:100%;}
+</style>
+</head>
+<body>
+<div id="bar"></div>
+<div id="viewport"><div id="deck">
+
+<!-- ============ S1 封面 ============ -->
+<section class="slide">
+  <div class="body"><div class="center">
+    <div class="kicker">内部分享 · 面向数据库开发者</div>
+    <h1 style="font-size:64px;margin:26px 0 14px;">从数据库看流计算</h1>
+    <div class="lede" style="font-size:24px;">Flink 执行模型、事件时间、状态管理与一致性机制</div>
+    <div class="chips" style="justify-content:center;margin-top:44px;">
+      <span class="chip"><b>1</b> 无界输入与执行模型</span>
+      <span class="chip"><b>2</b> 拉取式与数据流执行</span>
+      <span class="chip"><b>3</b> 事件时间、watermark 与迟到</span>
+      <span class="chip"><b>4</b> 托管状态</span>
+      <span class="chip"><b>5</b> checkpoint 与故障恢复</span>
+      <span class="chip"><b>6</b> 端到端 exactly-once 与 Paimon</span>
+    </div>
+    <div style="margin-top:52px;color:var(--muted);font-size:14px;">
+      内容依据：《流计算基础讲义》（一）DAG 与 Loop、（二）时间·状态·容错 · qingzhu521.github.io
+    </div>
+  </div></div>
+  <div class="foot"><span>从数据库看流计算</span><span>使用方向键或空格键翻页</span></div>
+</section>
+
+<!-- ============ S2 需求 ============ -->
+<section class="slide">
+  <div class="kicker">业务背景 · 持续窗口聚合</div>
+  <h1>持续计算订单表的五分钟成交总额</h1>
+  <div class="lede"><code>orders</code> 是持续写入的订单明细表，每行包含订单编号、事件时间 <code>event_time</code> 与金额 <code>amount</code>。业务要求每个 5 分钟窗口的成交总额（GMV）在分钟级延迟内可见。</div>
+  <div class="sqlcard"><pre><span class="k">SELECT</span> TUMBLE_START(event_time, <span class="k">INTERVAL</span> <span class="f">'5'</span> <span class="k">MINUTE</span>) <span class="k">AS</span> w,
+       <span class="f">SUM</span>(amount) <span class="k">AS</span> gmv
+<span class="k">FROM</span> orders
+<span class="k">GROUP BY</span> TUMBLE(event_time, <span class="k">INTERVAL</span> <span class="f">'5'</span> <span class="k">MINUTE</span>);</pre></div>
+  <div class="body"><div class="cols">
+    <div class="card">
+      <h3><span class="no">1</span>定时轮询</h3>
+      <p>每分钟重新执行整条 SQL。查询频率越高，结果越及时，数据库负载也越高。</p>
+      <div class="wall">延迟与系统负载相互制约；数据量增加后，全量重算成本持续上升</div>
+    </div>
+    <div class="card">
+      <h3><span class="no">2</span>触发器 / 物化视图</h3>
+      <p>在每次数据写入时同步维护聚合结果。</p>
+      <div class="wall">维护开销进入写入路径，高并发场景下可能降低写入吞吐量</div>
+    </div>
+    <div class="card">
+      <h3><span class="no">3</span>缩短批处理调度间隔</h3>
+      <p>将每日批处理缩短到小时级或分钟级，形成微批处理。</p>
+      <div class="wall">调度间隔越短，启动与协调开销占比越高；执行方式仍是周期性批处理</div>
+    </div>
+  </div></div>
+  <div class="punch">这三种方案都以<b>有明确终点的一次性查询</b>为前提。持续输入带来的根本变化在于执行模型，而非单纯的性能不足。</div>
+  <div class="foot"><span>业务背景 · 持续窗口聚合</span></div>
+</section>
+
+<!-- ============ S3 贯穿例子 ============ -->
+<section class="slide">
+  <div class="kicker">示例数据 · 事件时间与到达顺序</div>
+  <h1>同一组订单记录对应两条时间轴</h1>
+  <div class="lede"><code>o1</code> 至 <code>o7</code> 表示七条订单记录，每条记录包含业务发生时间与金额。事件时间由记录携带，系统按记录实际到达的顺序处理，因此两条时间轴可能不一致。</div>
+  <div class="body"><div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 340" role="img" aria-label="订单记录的事件时间与实际到达顺序示意：o1 至 o7 按事件时间归属两个五分钟窗口，其中 o3 和 o5 发生乱序到达">
+<style>
+text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", "Segoe UI", "Microsoft YaHei", sans-serif; }
+.t-title { font-size: 13px; font-weight: 600; fill: #1c1917; }
+.t-sub { font-size: 11px; fill: #57534e; }
+.t-label { font-size: 12px; fill: #1c1917; }
+.t-micro { font-size: 10px; fill: #a8a29e; }
+</style>
+<defs>
+<marker id="ex-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#57534e"/></marker>
+</defs>
+<rect x="110" y="48" width="340" height="30" rx="6" fill="#f0fdfa" stroke="#99f6e4"/>
+<rect x="450" y="48" width="300" height="30" rx="6" fill="#fff7ed" stroke="#fdba74"/>
+<text x="280" y="67" text-anchor="middle" class="t-sub">W1 = [10:00, 10:05) · 窗口聚合值 ¥60</text>
+<text x="600" y="67" text-anchor="middle" class="t-sub">W2 = [10:05, 10:10) · 窗口聚合值 ¥220</text>
+<line x1="60" y1="126" x2="740" y2="126" stroke="#57534e" stroke-width="1.5" marker-end="url(#ex-arrow)"/>
+<text x="60" y="114" class="t-label">事件时间</text>
+<g>
+<circle cx="150" cy="126" r="13" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="150" y="130" text-anchor="middle" class="t-label">o1</text>
+<circle cx="230" cy="126" r="13" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="230" y="130" text-anchor="middle" class="t-label">o2</text>
+<circle cx="310" cy="126" r="13" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="310" y="130" text-anchor="middle" class="t-label">o3</text>
+<circle cx="470" cy="126" r="13" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="470" y="130" text-anchor="middle" class="t-label">o4</text>
+<circle cx="550" cy="126" r="13" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.5"/><text x="550" y="130" text-anchor="middle" class="t-label">o5</text>
+<circle cx="630" cy="126" r="13" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="630" y="130" text-anchor="middle" class="t-label">o6</text>
+<circle cx="710" cy="126" r="13" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="710" y="130" text-anchor="middle" class="t-label">o7</text>
+</g>
+<text x="150" y="152" text-anchor="middle" class="t-micro">10:01 ¥10</text>
+<text x="230" y="152" text-anchor="middle" class="t-micro">10:02 ¥20</text>
+<text x="310" y="152" text-anchor="middle" class="t-micro">10:03 ¥30</text>
+<text x="470" y="152" text-anchor="middle" class="t-micro">10:05 ¥40</text>
+<text x="550" y="152" text-anchor="middle" class="t-micro">10:06 ¥50</text>
+<text x="630" y="152" text-anchor="middle" class="t-micro">10:07 ¥60</text>
+<text x="710" y="152" text-anchor="middle" class="t-micro">10:08 ¥70</text>
+<line x1="60" y1="236" x2="740" y2="236" stroke="#57534e" stroke-width="1.5" marker-end="url(#ex-arrow)"/>
+<text x="60" y="224" class="t-label">到达时间</text>
+<g>
+<circle cx="120" cy="236" r="13" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="120" y="240" text-anchor="middle" class="t-label">o1</text>
+<circle cx="200" cy="236" r="13" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="200" y="240" text-anchor="middle" class="t-label">o2</text>
+<circle cx="280" cy="236" r="13" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="280" y="240" text-anchor="middle" class="t-label">o4</text>
+<circle cx="360" cy="236" r="13" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="360" y="240" text-anchor="middle" class="t-label">o3</text>
+<circle cx="440" cy="236" r="13" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="440" y="240" text-anchor="middle" class="t-label">o6</text>
+<circle cx="520" cy="236" r="13" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="520" y="240" text-anchor="middle" class="t-label">o7</text>
+<circle cx="660" cy="236" r="13" fill="#ffedd5" stroke="#9a3412" stroke-width="1.5"/><text x="660" y="240" text-anchor="middle" class="t-label">o5</text>
+</g>
+<path d="M310 139 C330 186,340 191,358 223" fill="none" stroke="#9a3412" stroke-width="1.4" stroke-dasharray="4 4"/>
+<path d="M550 139 C580 221,610 206,652 223" fill="none" stroke="#9a3412" stroke-width="1.4" stroke-dasharray="4 4"/>
+<text x="340" y="192" class="t-micro">o3：轻微延迟</text>
+<text x="560" y="196" class="t-micro">o5：设备离线，显著迟到</text>
+<text x="380" y="300" text-anchor="middle" class="t-sub">实际到达顺序：o1, o2, o4, o3, o6, o7, …, o5；o5 最后到达</text>
+</svg>
+  </div></div>
+  <div class="punch">系统按到达顺序接收记录，但窗口聚合依据记录中的<b>事件时间</b>计算：W1 与 W2 的成交总额分别为 ¥60 和 ¥220。</div>
+  <div class="foot"><span>示例数据 · 事件时间与到达顺序</span></div>
+</section>
+
+<!-- ============ S4 问题一：火山模型的一生 ============ -->
+<section class="slide">
+  <div class="kicker">一、无界输入与执行模型</div>
+  <h1>经典火山模型如何执行查询</h1>
+  <div class="body"><div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 440" role="img" aria-label="经典火山模型执行示意：阻塞算子形成 pipeline 边界，中间结果在 pipeline 之间物化，并随查询生命周期管理">
+<style>
+text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", "Segoe UI", "Microsoft YaHei", sans-serif; }
+.t-title { font-size: 13px; font-weight: 600; fill: #1c1917; }
+.t-sub { font-size: 11px; fill: #57534e; }
+.t-label { font-size: 12px; fill: #1c1917; }
+.t-micro { font-size: 10px; fill: #a8a29e; }
+</style>
+<defs>
+<marker id="fig1-idle" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#a8a29e"/></marker>
+<marker id="fig1-orange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#9a3412"/></marker>
+</defs>
+<text x="195" y="28" text-anchor="middle" class="t-title" fill="#9a3412">计划树：阻塞算子形成 pipeline 边界</text>
+<text x="195" y="46" text-anchor="middle" class="t-sub">根算子通过 next() 逐层请求输入</text>
+<text x="592" y="28" text-anchor="middle" class="t-title" fill="#9a3412">执行视图：每条 pipeline 独立运行</text>
+<text x="592" y="46" text-anchor="middle" class="t-sub">物化结果在 pipeline 之间交接</text>
+<line x1="390" y1="20" x2="390" y2="420" stroke="#e8e0d4" stroke-width="1" stroke-dasharray="2 4"/>
+<g stroke="#a8a29e" stroke-width="1.5" fill="none">
+<line x1="135" y1="336" x2="135" y2="306" marker-end="url(#fig1-idle)"/>
+<line x1="135" y1="268" x2="168" y2="238" marker-end="url(#fig1-idle)"/>
+<line x1="285" y1="336" x2="285" y2="306" marker-end="url(#fig1-idle)"/>
+<line x1="285" y1="268" x2="246" y2="237" marker-end="url(#fig1-idle)"/>
+<line x1="195" y1="200" x2="195" y2="170" marker-end="url(#fig1-idle)"/>
+<line x1="195" y1="132" x2="195" y2="102" marker-end="url(#fig1-idle)"/>
+</g>
+<g>
+<rect x="147" y="64" width="96" height="34" rx="9" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.4"/><text x="195" y="85" text-anchor="middle" class="t-label">汇总</text>
+<rect x="147" y="132" width="96" height="34" rx="9" fill="#ffedd5" stroke="#9a3412" stroke-width="1.5"/><text x="195" y="153" text-anchor="middle" class="t-label">Sort</text>
+<rect x="147" y="200" width="96" height="34" rx="9" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.4"/><text x="195" y="221" text-anchor="middle" class="t-label">HashJoin</text>
+<rect x="87" y="268" width="96" height="34" rx="9" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.4"/><text x="135" y="289" text-anchor="middle" class="t-label">Filter</text>
+<rect x="237" y="268" width="96" height="34" rx="9" fill="#ffedd5" stroke="#9a3412" stroke-width="1.5"/><text x="285" y="289" text-anchor="middle" class="t-label">HashBuild</text>
+<rect x="87" y="336" width="96" height="34" rx="9" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.4"/><text x="135" y="357" text-anchor="middle" class="t-label">Scan·orders</text>
+<rect x="237" y="336" width="96" height="34" rx="9" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.4"/><text x="285" y="357" text-anchor="middle" class="t-label">Scan·cust</text>
+</g>
+<g stroke="#9a3412" stroke-width="2" stroke-dasharray="7 5" fill="none">
+<line x1="135" y1="115" x2="255" y2="115"/>
+<line x1="256" y1="264" x2="277" y2="238"/>
+</g>
+<text x="263" y="119" class="t-micro" fill="#9a3412">物化：有序数据</text>
+<text x="290" y="242" class="t-micro" fill="#9a3412">物化：哈希表</text>
+<rect x="30" y="398" width="16" height="16" rx="4" fill="#ffedd5" stroke="#9a3412" stroke-width="1.2"/>
+<text x="54" y="411" class="t-sub">pipeline breaker：必须读取完当前输入，并在此物化数据</text>
+<g>
+<rect x="405" y="64" width="375" height="64" rx="10" fill="#f6f1e7" stroke="#e8e0d4"/>
+<text x="417" y="82" class="t-micro" fill="#9a3412" font-weight="700">P1 · 线程 1</text>
+<rect x="417" y="90" width="82" height="26" rx="7" fill="#ffffff" stroke="#d6d3d1"/><text x="458" y="107" text-anchor="middle" class="t-label">Scan·cust</text>
+<line x1="499" y1="103" x2="509" y2="103" stroke="#a8a29e" stroke-width="1.5" marker-end="url(#fig1-idle)"/>
+<rect x="511" y="90" width="96" height="26" rx="7" fill="#ffffff" stroke="#d6d3d1"/><text x="559" y="107" text-anchor="middle" class="t-label">构建哈希表</text>
+<line x1="607" y1="103" x2="617" y2="103" stroke="#a8a29e" stroke-width="1.5" marker-end="url(#fig1-idle)"/>
+<rect x="619" y="90" width="124" height="26" rx="7" fill="#ffedd5" stroke="#9a3412" stroke-width="1.3"/><text x="681" y="107" text-anchor="middle" class="t-label">哈希表 · 物化</text>
+<rect x="405" y="184" width="375" height="64" rx="10" fill="#f6f1e7" stroke="#e8e0d4"/>
+<text x="417" y="202" class="t-micro" fill="#9a3412" font-weight="700">P2 · 线程 2</text>
+<rect x="417" y="210" width="88" height="26" rx="7" fill="#ffffff" stroke="#d6d3d1"/><text x="461" y="227" text-anchor="middle" class="t-label">Scan·orders</text>
+<line x1="505" y1="223" x2="515" y2="223" stroke="#a8a29e" stroke-width="1.5" marker-end="url(#fig1-idle)"/>
+<rect x="517" y="210" width="64" height="26" rx="7" fill="#ffffff" stroke="#d6d3d1"/><text x="549" y="227" text-anchor="middle" class="t-label">Filter</text>
+<line x1="581" y1="223" x2="591" y2="223" stroke="#a8a29e" stroke-width="1.5" marker-end="url(#fig1-idle)"/>
+<rect x="593" y="210" width="64" height="26" rx="7" fill="#ffffff" stroke="#d6d3d1"/><text x="625" y="227" text-anchor="middle" class="t-label">⋈ probe</text>
+<line x1="657" y1="223" x2="667" y2="223" stroke="#a8a29e" stroke-width="1.5" marker-end="url(#fig1-idle)"/>
+<rect x="669" y="210" width="98" height="26" rx="7" fill="#ffedd5" stroke="#9a3412" stroke-width="1.3"/><text x="718" y="227" text-anchor="middle" class="t-label">有序数据·物化</text>
+<rect x="405" y="304" width="375" height="64" rx="10" fill="#f6f1e7" stroke="#e8e0d4"/>
+<text x="417" y="322" class="t-micro" fill="#9a3412" font-weight="700">P3 · 线程 3</text>
+<rect x="417" y="330" width="104" height="26" rx="7" fill="#ffffff" stroke="#d6d3d1"/><text x="469" y="347" text-anchor="middle" class="t-label">读回有序数据</text>
+<line x1="521" y1="343" x2="531" y2="343" stroke="#a8a29e" stroke-width="1.5" marker-end="url(#fig1-idle)"/>
+<rect x="533" y="330" width="64" height="26" rx="7" fill="#ffffff" stroke="#d6d3d1"/><text x="565" y="347" text-anchor="middle" class="t-label">汇总</text>
+<line x1="597" y1="343" x2="607" y2="343" stroke="#a8a29e" stroke-width="1.5" marker-end="url(#fig1-idle)"/>
+<rect x="609" y="330" width="64" height="26" rx="7" fill="#ffffff" stroke="#d6d3d1"/><text x="641" y="347" text-anchor="middle" class="t-label">输出</text>
+</g>
+<g stroke="#9a3412" stroke-width="1.8" stroke-dasharray="6 4" fill="none">
+<line x1="681" y1="120" x2="625" y2="209" marker-end="url(#fig1-orange)"/>
+<path d="M 718 240 L 718 274 L 469 274 L 469 329" marker-end="url(#fig1-orange)"/>
+</g>
+<text x="694" y="160" class="t-micro" fill="#9a3412">probe 前必须完成构建</text>
+<text x="594" y="268" text-anchor="middle" class="t-micro" fill="#9a3412">由 P3 读取物化数据</text>
+<g stroke="#9a3412" stroke-width="1.5" fill="none">
+<line x1="405" y1="388" x2="780" y2="388"/>
+<line x1="405" y1="382" x2="405" y2="394"/>
+<line x1="780" y1="382" x2="780" y2="394"/>
+</g>
+<text x="592" y="410" text-anchor="middle" class="t-sub">pipeline 通常随查询建立，并在查询结束后释放计划、线程与中间状态</text>
+</svg>
+  </div></div>
+  <div class="punch">在经典抽象中，<code>open() → next() × N → close()</code>。向量化、编译执行和 morsel-driven 调度主要降低执行开销，基本前提仍是<b>输入有界、查询具有明确终点</b>。</div>
+  <div class="foot"><span>一、无界输入与执行模型</span></div>
+</section>
+
+<!-- ============ S5 问题一：无界输入 ============ -->
+<section class="slide">
+  <div class="kicker">一、无界输入与执行模型</div>
+  <h1>持续无界输入使三个基本前提不再成立</h1>
+  <div class="body"><div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 440" role="img" aria-label="有限查询与持续无界作业的生命周期对比：有限查询具有明确结束边界，无界作业需要显式管理状态、窗口和事件时间进度">
+<style>
+text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", "Segoe UI", "Microsoft YaHei", sans-serif; }
+.t-title { font-size: 13px; font-weight: 600; fill: #1c1917; }
+.t-sub { font-size: 11px; fill: #57534e; }
+.t-label { font-size: 12px; fill: #1c1917; }
+.t-micro { font-size: 10px; fill: #a8a29e; }
+</style>
+<defs>
+<marker id="fig2-gray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#a8a29e"/></marker>
+</defs>
+<text x="380" y="28" text-anchor="middle" class="t-title">两种执行方式对应不同的生命周期</text>
+<text x="380" y="46" text-anchor="middle" class="t-sub">关键差别在于是否预先知道结束边界</text>
+<text x="20" y="92" class="t-label" fill="#9a3412" font-weight="600">有限查询 · pull</text>
+<text x="20" y="110" class="t-sub">输入有限，结束边界已知</text>
+<line x1="120" y1="140" x2="660" y2="140" stroke="#e8e0d4" stroke-width="1"/>
+<rect x="128" y="126" width="62" height="28" rx="8" fill="#ffedd5" stroke="#9a3412" stroke-width="1.4"/><text x="159" y="144" text-anchor="middle" class="t-label">open()</text>
+<g fill="#9a3412">
+<circle cx="226" cy="140" r="3"/><circle cx="254" cy="140" r="3"/><circle cx="282" cy="140" r="3"/><circle cx="310" cy="140" r="3"/><circle cx="338" cy="140" r="3"/><circle cx="366" cy="140" r="3"/>
+</g>
+<text x="296" y="122" text-anchor="middle" class="t-micro" fill="#9a3412" font-weight="700">next() × N</text>
+<rect x="400" y="126" width="62" height="28" rx="8" fill="#ffedd5" stroke="#9a3412" stroke-width="1.4"/><text x="431" y="144" text-anchor="middle" class="t-label">close()</text>
+<line x1="500" y1="108" x2="500" y2="172" stroke="#9a3412" stroke-width="2.2"/>
+<text x="500" y="100" text-anchor="middle" class="t-micro" fill="#9a3412" font-weight="700">查询结束</text>
+<rect x="512" y="112" width="200" height="56" rx="10" fill="#f6f1e7" stroke="#e8e0d4"/>
+<text x="612" y="134" text-anchor="middle" class="t-micro">计划销毁 · 资源释放</text>
+<text x="612" y="152" text-anchor="middle" class="t-micro" fill="#57534e">中间状态随查询结束释放</text>
+<text x="20" y="238" class="t-label" fill="#0f766e" font-weight="600">流式作业 · 数据驱动</text>
+<text x="20" y="256" class="t-sub">持续无界输入通常没有预设终点</text>
+<line x1="120" y1="282" x2="728" y2="282" stroke="#e8e0d4" stroke-width="1" marker-end="url(#fig2-gray)"/>
+<rect x="128" y="268" width="62" height="28" rx="8" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.4"/><text x="159" y="286" text-anchor="middle" class="t-label">open()</text>
+<g fill="#0f766e">
+<circle cx="226" cy="282" r="3"/><circle cx="252" cy="282" r="3"/><circle cx="278" cy="282" r="3"/><circle cx="304" cy="282" r="3"/><circle cx="330" cy="282" r="3"/><circle cx="356" cy="282" r="3"/><circle cx="382" cy="282" r="3"/><circle cx="408" cy="282" r="3"/><circle cx="434" cy="282" r="3"/>
+</g>
+<text x="476" y="287" text-anchor="middle" class="t-label" fill="#0f766e">· · ·</text>
+<text x="330" y="264" text-anchor="middle" class="t-micro" fill="#0f766e">记录持续到达，作业长期运行</text>
+<rect x="636" y="268" width="84" height="28" rx="8" fill="#fffdf8" stroke="#0f766e" stroke-width="1.5" stroke-dasharray="5 4"/><text x="678" y="286" text-anchor="middle" class="t-label" fill="#0f766e">close()</text>
+<text x="678" y="258" text-anchor="middle" class="t-micro" fill="#9a3412" font-weight="700">无预设时点</text>
+<g stroke="#0f766e" stroke-width="1.2" stroke-dasharray="3 3" fill="none">
+<line x1="250" y1="290" x2="250" y2="328"/>
+<line x1="470" y1="290" x2="470" y2="328"/>
+<line x1="665" y1="290" x2="665" y2="328"/>
+</g>
+<rect x="150" y="330" width="200" height="64" rx="10" fill="#ffffff" stroke="#0f766e" stroke-width="1.3"/>
+<text x="162" y="352" class="t-label" fill="#0f766e" font-weight="600">状态</text>
+<text x="162" y="370" class="t-micro">中间结果不能依赖查询结束时释放</text>
+<text x="162" y="384" class="t-micro">需要显式定义保留与清理策略</text>
+<rect x="370" y="330" width="200" height="64" rx="10" fill="#ffffff" stroke="#0f766e" stroke-width="1.3"/>
+<text x="382" y="352" class="t-label" fill="#0f766e" font-weight="600">窗口</text>
+<text x="382" y="370" class="t-micro">排序与全量聚合不能等待所有输入</text>
+<text x="382" y="384" class="t-micro">需要显式划分计算边界</text>
+<rect x="590" y="330" width="150" height="64" rx="10" fill="#ffffff" stroke="#0f766e" stroke-width="1.3"/>
+<text x="602" y="352" class="t-label" fill="#0f766e" font-weight="600">进度</text>
+<text x="602" y="370" class="t-micro">何时可认为一段时间的数据基本完整</text>
+<text x="602" y="384" class="t-micro">需要显式的进度机制</text>
+<text x="20" y="424" class="t-micro">时间 →</text>
+</svg>
+  </div></div>
+  <div class="punch">对于持续无界输入，结束边界不再由 <code>close()</code> 自然提供，因此<b>状态生命周期、计算窗口与事件时间进度</b>都必须显式管理。</div>
+  <div class="foot"><span>一、无界输入与执行模型</span></div>
+</section>
+
+<!-- ============ S6 问题二：pull → push ============ -->
+<section class="slide">
+  <div class="kicker">二、从拉取式执行到数据流执行</div>
+  <h1>由拉取式调用转向数据驱动的运行时调度</h1>
+  <div class="body"><div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 780 400" role="img" aria-label="pull 与 push 执行方式对比：火山模型由父算子通过 next 调用拉取数据，dataflow 由运行时根据输入记录到达情况调度算子">
+<style>
+text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", "Segoe UI", "Microsoft YaHei", sans-serif; }
+.t-title { font-size: 14px; font-weight: 700; }
+.t-sub { font-size: 11px; fill: #57534e; }
+.t-label { font-size: 13px; fill: #1c1917; }
+.t-micro { font-size: 10.5px; fill: #a8a29e; }
+</style>
+<defs>
+<marker id="fA-o" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#9a3412"/></marker>
+<marker id="fA-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#a8a29e"/></marker>
+<marker id="fA-t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#0f766e"/></marker>
+</defs>
+<text x="185" y="26" text-anchor="middle" class="t-title" fill="#9a3412">pull · 火山模型</text>
+<text x="185" y="44" text-anchor="middle" class="t-sub">调度关系体现在调用栈中：父算子调用子算子的 next()</text>
+<text x="595" y="26" text-anchor="middle" class="t-title" fill="#0f766e">push · dataflow</text>
+<text x="595" y="44" text-anchor="middle" class="t-sub">调度由运行时负责：输入记录到达后由对应算子处理</text>
+<line x1="390" y1="16" x2="390" y2="384" stroke="#e8e0d4" stroke-width="1" stroke-dasharray="2 4"/>
+<g>
+<rect x="137" y="64" width="96" height="34" rx="9" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.4"/><text x="185" y="85" text-anchor="middle" class="t-label">汇总</text>
+<rect x="137" y="152" width="96" height="34" rx="9" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.4"/><text x="185" y="173" text-anchor="middle" class="t-label">HashJoin</text>
+<rect x="137" y="240" width="96" height="34" rx="9" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.4"/><text x="185" y="261" text-anchor="middle" class="t-label">Scan</text>
+<line x1="167" y1="98" x2="167" y2="152" stroke="#9a3412" stroke-width="1.6" marker-end="url(#fA-o)"/>
+<line x1="203" y1="152" x2="203" y2="98" stroke="#a8a29e" stroke-width="1.6" marker-end="url(#fA-g)"/>
+<line x1="167" y1="186" x2="167" y2="240" stroke="#9a3412" stroke-width="1.6" marker-end="url(#fA-o)"/>
+<line x1="203" y1="240" x2="203" y2="186" stroke="#a8a29e" stroke-width="1.6" marker-end="url(#fA-g)"/>
+<text x="128" y="128" class="t-micro" fill="#9a3412" font-weight="700">next()</text>
+<text x="212" y="128" class="t-micro">tuple</text>
+<text x="128" y="216" class="t-micro" fill="#9a3412" font-weight="700">next()</text>
+<text x="212" y="216" class="t-micro">tuple</text>
+<rect x="60" y="316" width="250" height="52" rx="10" fill="#f6f1e7" stroke="#e8e0d4"/>
+<text x="185" y="338" text-anchor="middle" class="t-sub">持续无界输入下，source 可能长期无数据</text>
+<text x="185" y="356" text-anchor="middle" class="t-sub">调用线程不能依赖「查询结束」返回</text>
+</g>
+<g>
+<rect x="420" y="150" width="70" height="36" rx="9" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.4"/><text x="455" y="173" text-anchor="middle" class="t-label">源</text>
+<rect x="530" y="150" width="70" height="36" rx="9" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.4"/><text x="565" y="173" text-anchor="middle" class="t-label">Map</text>
+<rect x="640" y="150" width="70" height="36" rx="9" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.4"/><text x="675" y="173" text-anchor="middle" class="t-label">聚合</text>
+<rect x="640" y="270" width="70" height="36" rx="9" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.4"/><text x="675" y="293" text-anchor="middle" class="t-label">Sink</text>
+<line x1="490" y1="168" x2="530" y2="168" stroke="#0f766e" stroke-width="1.8" marker-end="url(#fA-t)"/>
+<line x1="600" y1="168" x2="640" y2="168" stroke="#0f766e" stroke-width="1.8" marker-end="url(#fA-t)"/>
+<line x1="675" y1="186" x2="675" y2="270" stroke="#0f766e" stroke-width="1.8" marker-end="url(#fA-t)"/>
+<circle cx="512" cy="168" r="5" fill="#0f766e"/>
+<text x="512" y="146" text-anchor="middle" class="t-micro" fill="#0f766e" font-weight="700">记录到达后由算子处理</text>
+<rect x="440" y="330" width="310" height="44" rx="10" fill="#eefaf7" stroke="#99e5d8"/>
+<text x="595" y="357" text-anchor="middle" class="t-sub" fill="#134e4a">无数据时挂起；执行次序由输入与运行时共同决定</text>
+</g>
+</svg>
+  </div></div>
+  <div class="punch">pull 模型通过调用关系组织执行，数据流模型由运行时根据输入可用性调度算子。计算的生命周期由<b>一次性查询转为持续运行的服务</b>。</div>
+  <div class="foot"><span>二、从拉取式执行到数据流执行</span></div>
+</section>
+
+<!-- ============ S7 问题二：dataflow 常驻图 ============ -->
+<section class="slide">
+  <div class="kicker">二、从拉取式执行到数据流执行</div>
+  <h1>dataflow 由持续运行的算子节点组成</h1>
+  <div class="lede">GMV 查询被部署为一张持续运行的计算图。算子持续消费各自输入，运行时负责调度、数据交换与反压。</div>
+  <div class="body"><div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 780 430" role="img" aria-label="持续运行的 dataflow：两个 source 分别读取 Kafka 分区并记录 offset，数据按 key 分发到维护算子状态的聚合实例，结果最终写入外部存储">
+<style>
+text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", "Segoe UI", "Microsoft YaHei", sans-serif; }
+.t-title { font-size: 13px; font-weight: 600; fill: #1c1917; }
+.t-sub { font-size: 11px; fill: #57534e; }
+.t-label { font-size: 12px; fill: #1c1917; }
+.t-micro { font-size: 10px; fill: #a8a29e; }
+</style>
+<defs>
+<marker id="fG-t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#0f766e"/></marker>
+<marker id="fG-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#a8a29e"/></marker>
+</defs>
+<!-- Kafka -->
+<rect x="24" y="70" width="118" height="230" rx="12" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.4"/>
+<text x="83" y="94" text-anchor="middle" class="t-label" font-weight="700">Kafka</text>
+<text x="83" y="110" text-anchor="middle" class="t-micro">topic: orders</text>
+<rect x="38" y="124" width="90" height="66" rx="8" fill="#f6f1e7" stroke="#e8e0d4"/>
+<text x="83" y="142" text-anchor="middle" class="t-micro" font-weight="700">分区 p0</text>
+<g fill="#0f766e">
+<rect x="46" y="152" width="12" height="12" rx="3"/><rect x="62" y="152" width="12" height="12" rx="3"/><rect x="78" y="152" width="12" height="12" rx="3"/><rect x="94" y="152" width="12" height="12" rx="3"/>
+</g>
+<text x="83" y="182" text-anchor="middle" class="t-micro">offset 0 1 2 3 …</text>
+<rect x="38" y="204" width="90" height="66" rx="8" fill="#f6f1e7" stroke="#e8e0d4"/>
+<text x="83" y="222" text-anchor="middle" class="t-micro" font-weight="700">分区 p1</text>
+<g fill="#0f766e">
+<rect x="46" y="232" width="12" height="12" rx="3"/><rect x="62" y="232" width="12" height="12" rx="3"/><rect x="78" y="232" width="12" height="12" rx="3"/>
+</g>
+<text x="83" y="262" text-anchor="middle" class="t-micro">offset 0 1 2 …</text>
+<text x="83" y="292" text-anchor="middle" class="t-micro" fill="#9a3412" font-weight="700">分区内位置有序</text>
+<!-- Source 节点 -->
+<line x1="142" y1="157" x2="188" y2="150" stroke="#0f766e" stroke-width="1.8" marker-end="url(#fG-t)"/>
+<line x1="142" y1="237" x2="188" y2="244" stroke="#0f766e" stroke-width="1.8" marker-end="url(#fG-t)"/>
+<rect x="190" y="116" width="120" height="68" rx="10" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/>
+<text x="250" y="142" text-anchor="middle" class="t-label" fill="#0f766e" font-weight="700">Source A</text>
+<text x="250" y="162" text-anchor="middle" class="t-micro" fill="#0f766e">读取 p0，并记录 offset</text>
+<rect x="190" y="210" width="120" height="68" rx="10" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/>
+<text x="250" y="236" text-anchor="middle" class="t-label" fill="#0f766e" font-weight="700">Source B</text>
+<text x="250" y="256" text-anchor="middle" class="t-micro" fill="#0f766e">读取 p1，并记录 offset</text>
+<!-- 按 key 分发 -->
+<line x1="310" y1="140" x2="372" y2="120" stroke="#a8a29e" stroke-width="1.5" marker-end="url(#fG-g)"/>
+<line x1="310" y1="160" x2="372" y2="240" stroke="#a8a29e" stroke-width="1.5" marker-end="url(#fG-g)"/>
+<line x1="310" y1="234" x2="372" y2="140" stroke="#a8a29e" stroke-width="1.5" marker-end="url(#fG-g)"/>
+<line x1="310" y1="254" x2="372" y2="260" stroke="#a8a29e" stroke-width="1.5" marker-end="url(#fG-g)"/>
+<text x="326" y="102" text-anchor="middle" class="t-micro">按 key 分发</text>
+<!-- 聚合实例 -->
+<rect x="374" y="84" width="180" height="104" rx="12" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.4"/>
+<text x="464" y="106" text-anchor="middle" class="t-label" font-weight="700">聚合实例 1（常驻）</text>
+<rect x="388" y="116" width="152" height="30" rx="7" fill="#f6f1e7" stroke="#e8e0d4"/>
+<text x="464" y="136" text-anchor="middle" class="t-micro">输入队列：接收所属数据通道</text>
+<rect x="388" y="150" width="152" height="30" rx="7" fill="#ffedd5" stroke="#9a3412" stroke-width="1.2"/>
+<text x="464" y="170" text-anchor="middle" class="t-micro" fill="#9a3412">算子状态：W1 累加器 ¥60</text>
+<rect x="374" y="216" width="180" height="104" rx="12" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.4"/>
+<text x="464" y="238" text-anchor="middle" class="t-label" font-weight="700">聚合实例 2（常驻）</text>
+<rect x="388" y="248" width="152" height="30" rx="7" fill="#f6f1e7" stroke="#e8e0d4"/>
+<text x="464" y="268" text-anchor="middle" class="t-micro">输入队列：接收所属数据通道</text>
+<rect x="388" y="282" width="152" height="30" rx="7" fill="#ffedd5" stroke="#9a3412" stroke-width="1.2"/>
+<text x="464" y="302" text-anchor="middle" class="t-micro" fill="#9a3412">算子状态：W2 累加器 ¥170</text>
+<!-- Sink -->
+<line x1="554" y1="136" x2="606" y2="172" stroke="#a8a29e" stroke-width="1.5" marker-end="url(#fG-g)"/>
+<line x1="554" y1="268" x2="606" y2="232" stroke="#a8a29e" stroke-width="1.5" marker-end="url(#fG-g)"/>
+<rect x="608" y="168" width="96" height="68" rx="10" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.4"/>
+<text x="656" y="194" text-anchor="middle" class="t-label" font-weight="700">Sink</text>
+<text x="656" y="214" text-anchor="middle" class="t-micro">写结果表</text>
+<line x1="704" y1="202" x2="736" y2="202" stroke="#0f766e" stroke-width="1.8" marker-end="url(#fG-t)"/>
+<rect x="738" y="176" width="14" height="52" rx="4" fill="#eefaf7" stroke="#0f766e"/>
+<!-- 底部三特点 -->
+<g>
+<rect x="24" y="348" width="240" height="62" rx="10" fill="#eefaf7" stroke="#99e5d8"/>
+<text x="144" y="374" text-anchor="middle" class="t-label" fill="#0f766e" font-weight="700">① 节点常驻</text>
+<text x="144" y="396" text-anchor="middle" class="t-sub">部署后持续运行，不随单次查询结束</text>
+<rect x="280" y="348" width="240" height="62" rx="10" fill="#eefaf7" stroke="#99e5d8"/>
+<text x="400" y="374" text-anchor="middle" class="t-label" fill="#0f766e" font-weight="700">② 输入位置固定</text>
+<text x="400" y="396" text-anchor="middle" class="t-sub">绑定输入分区 / 通道，并记录 offset</text>
+<rect x="536" y="348" width="240" height="62" rx="10" fill="#eefaf7" stroke="#99e5d8"/>
+<text x="656" y="374" text-anchor="middle" class="t-label" fill="#0f766e" font-weight="700">③ 数据驱动</text>
+<text x="656" y="396" text-anchor="middle" class="t-sub">由输入可用性驱动算子处理</text>
+</g>
+</svg>
+  </div></div>
+  <div class="punch">单机算子树可以部署为分布式常驻计算图：<b>每个节点从固定输入读取、维护自身状态，并将结果发送到下游</b>。这是数据流执行模型的基本形式（Kahn Process Networks，1974）。</div>
+  <div class="foot"><span>二、从拉取式执行到数据流执行</span></div>
+</section>
+
+<!-- ============ S8 问题三：乱序两难 ============ -->
+<section class="slide">
+  <div class="kicker">三、事件时间、watermark 与迟到数据</div>
+  <h1>乱序数据使窗口完成时间难以判断</h1>
+  <div class="lede">系统按到达顺序接收记录，窗口却按事件时间归属。若没有显式的进度机制，立即触发与无限等待都会产生明显代价。</div>
+  <div class="body"><div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 780 340" role="img" aria-label="两种不完整策略的对比：按当前到达顺序提前触发会漏计 o3，无限期等待迟到记录则会阻塞输出并持续占用状态">
+<style>
+text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", "Segoe UI", "Microsoft YaHei", sans-serif; }
+.t-title { font-size: 13px; font-weight: 600; fill: #1c1917; }
+.t-sub { font-size: 11px; fill: #57534e; }
+.t-label { font-size: 12px; fill: #1c1917; }
+.t-micro { font-size: 10px; fill: #a8a29e; }
+</style>
+<defs>
+<marker id="fH2-o" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#9a3412"/></marker>
+</defs>
+<!-- 左：急着关窗 -->
+<text x="195" y="30" text-anchor="middle" class="t-title" fill="#9a3412">策略一：按当前到达顺序直接触发</text>
+<text x="195" y="48" text-anchor="middle" class="t-sub">o4 的事件时间到达 10:05，但 o3 尚未到达</text>
+<line x1="60" y1="150" x2="360" y2="150" stroke="#d6d3d1" stroke-width="1.5"/>
+<rect x="80" y="100" width="180" height="50" fill="#f6f1e7"/>
+<text x="170" y="94" text-anchor="middle" class="t-micro">W1 = [10:00, 10:05)</text>
+<line x1="260" y1="88" x2="260" y2="170" stroke="#9a3412" stroke-width="2" stroke-dasharray="6 4"/>
+<text x="260" y="184" text-anchor="middle" class="t-micro" fill="#9a3412" font-weight="700">10:05 · 提前触发</text>
+<g fill="#0f766e">
+<circle cx="110" cy="150" r="11"/><text x="110" y="154" text-anchor="middle" class="t-micro" fill="#ffffff">o1</text>
+<circle cx="150" cy="150" r="11"/><text x="150" y="154" text-anchor="middle" class="t-micro" fill="#ffffff">o2</text>
+</g>
+<circle cx="262" cy="150" r="11" fill="#9a3412"/><text x="262" y="154" text-anchor="middle" class="t-micro" fill="#ffffff">o4</text>
+<rect x="90" y="210" width="220" height="54" rx="10" fill="#ffedd5" stroke="#9a3412" stroke-width="1.4"/>
+<text x="200" y="233" text-anchor="middle" class="t-label" fill="#9a3412" font-weight="700">W1 输出 ¥30，结果不完整</text>
+<text x="200" y="251" text-anchor="middle" class="t-micro" fill="#9a3412">o3 尚未到达，因此少计 ¥30</text>
+<text x="195" y="300" text-anchor="middle" class="t-sub">提前触发 = 依据不完整输入输出结果</text>
+<!-- 分隔 -->
+<line x1="390" y1="24" x2="390" y2="316" stroke="#e8e0d4" stroke-width="1" stroke-dasharray="2 4"/>
+<!-- 右：死等 -->
+<text x="585" y="30" text-anchor="middle" class="t-title" fill="#9a3412">策略二：无限期等待</text>
+<text x="585" y="48" text-anchor="middle" class="t-sub">等待所有可能迟到的记录后再输出</text>
+<line x1="420" y1="150" x2="750" y2="150" stroke="#d6d3d1" stroke-width="1.5" marker-end="url(#fH2-o)"/>
+<rect x="440" y="100" width="180" height="50" fill="#f6f1e7"/>
+<text x="530" y="94" text-anchor="middle" class="t-micro">W1 = [10:00, 10:05)</text>
+<circle cx="710" cy="150" r="11" fill="#ffedd5" stroke="#9a3412" stroke-width="1.5"/><text x="710" y="154" text-anchor="middle" class="t-micro" fill="#9a3412">o5</text>
+<text x="710" y="184" text-anchor="middle" class="t-micro" fill="#9a3412">设备离线：两小时后到达</text>
+<rect x="450" y="210" width="270" height="54" rx="10" fill="#ffedd5" stroke="#9a3412" stroke-width="1.4"/>
+<text x="585" y="233" text-anchor="middle" class="t-label" fill="#9a3412" font-weight="700">输出持续阻塞，状态持续累积</text>
+<text x="585" y="251" text-anchor="middle" class="t-micro" fill="#9a3412">无法确定最大迟到时间，也无法确定结束时点</text>
+<text x="585" y="300" text-anchor="middle" class="t-sub">无限等待 = 以可用性换取不确定的完整性</text>
+</svg>
+  </div></div>
+  <div class="punch">等待全部数据会长期阻塞输出，立即计算又可能遗漏记录。<b>乱序是无界数据处理中需要常态化处理的情况</b>。</div>
+  <div class="foot"><span>三、事件时间、watermark 与迟到数据</span></div>
+</section>
+
+<!-- ============ S9 watermark ============ -->
+<section class="slide">
+  <div class="kicker">三、事件时间、watermark 与迟到数据</div>
+  <h1>watermark：事件时间进度的估计</h1>
+  <div class="lede">运行时持续生成 watermark，表示系统认为事件时间已经推进到某个时点。窗口可以据此触发，但迟到数据是否接收仍由窗口策略决定。</div>
+  <div class="body"><div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 330" role="img" aria-label="watermark 进度示例：o6 到达后 watermark 推进至 10:05，W1 首次触发；后续 watermark 超过 10:10 后，o5 才到达并成为 W2 的迟到记录">
+<style>
+text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", "Segoe UI", "Microsoft YaHei", sans-serif; }
+.t-title { font-size: 13px; font-weight: 600; fill: #1c1917; }
+.t-sub { font-size: 11px; fill: #57534e; }
+.t-label { font-size: 12px; fill: #1c1917; }
+.t-micro { font-size: 10px; fill: #a8a29e; }
+</style>
+<!-- 窗口区域 -->
+<rect x="90" y="86" width="220" height="64" fill="#f6f1e7"/>
+<text x="200" y="76" text-anchor="middle" class="t-sub">W1 = [10:00, 10:05)</text>
+<!-- watermark 线 -->
+<line x1="310" y1="56" x2="310" y2="196" stroke="#0f766e" stroke-width="2.6"/>
+<text x="310" y="44" text-anchor="middle" class="t-label" fill="#0f766e" font-weight="700">示例策略：已见最大事件时间 − 2 分钟</text>
+<!-- 时间轴 -->
+<line x1="60" y1="150" x2="730" y2="150" stroke="#d6d3d1" stroke-width="1.5"/>
+<g class="t-micro">
+<text x="90" y="170" text-anchor="middle">10:00</text>
+<text x="310" y="170" text-anchor="middle">10:05</text>
+<text x="530" y="170" text-anchor="middle">10:10</text>
+</g>
+<g stroke="#a8a29e" stroke-width="1">
+<line x1="90" y1="145" x2="90" y2="155"/><line x1="310" y1="145" x2="310" y2="155"/>
+<line x1="530" y1="145" x2="530" y2="155"/>
+</g>
+<!-- 事件点（事件时间位置） -->
+<g fill="#0f766e">
+<circle cx="134" cy="150" r="9"/><text x="134" y="154" text-anchor="middle" class="t-micro" fill="#fff">o1</text>
+<circle cx="178" cy="150" r="9"/><text x="178" y="154" text-anchor="middle" class="t-micro" fill="#fff">o2</text>
+<circle cx="222" cy="150" r="9"/><text x="222" y="154" text-anchor="middle" class="t-micro" fill="#fff">o3</text>
+<circle cx="310" cy="150" r="9"/><text x="310" y="154" text-anchor="middle" class="t-micro" fill="#fff">o4</text>
+<circle cx="398" cy="150" r="9"/><text x="398" y="154" text-anchor="middle" class="t-micro" fill="#fff">o6</text>
+<circle cx="442" cy="150" r="9"/><text x="442" y="154" text-anchor="middle" class="t-micro" fill="#fff">o7</text>
+</g>
+<circle cx="354" cy="150" r="10" fill="#ffedd5" stroke="#9a3412" stroke-width="1.6"/>
+<text x="354" y="154" text-anchor="middle" class="t-micro" fill="#9a3412">o5</text>
+<!-- o6 到达触发 -->
+<rect x="60" y="216" width="320" height="56" rx="10" fill="#ffffff" stroke="#0f766e" stroke-width="1.4"/>
+<text x="220" y="239" text-anchor="middle" class="t-label" fill="#0f766e" font-weight="700">o6 到达：已见最大 10:07 → WM = 10:05</text>
+<text x="220" y="258" text-anchor="middle" class="t-micro" fill="#0f766e">W1 首次触发，输出 ¥60（o3 已在触发前到达）</text>
+<line x1="398" y1="162" x2="300" y2="214" stroke="#0f766e" stroke-width="1.2" stroke-dasharray="3 3"/>
+<!-- o5 越界 -->
+<rect x="420" y="216" width="320" height="56" rx="10" fill="#ffedd5" stroke="#9a3412" stroke-width="1.4"/>
+<text x="580" y="239" text-anchor="middle" class="t-label" fill="#9a3412" font-weight="700">后续记录使 WM 超过 10:10，o5 此后到达</text>
+<text x="580" y="258" text-anchor="middle" class="t-micro" fill="#9a3412">o5 成为 W2 的迟到记录；是否订正取决于 allowedLateness</text>
+<line x1="354" y1="162" x2="500" y2="214" stroke="#9a3412" stroke-width="1.2" stroke-dasharray="3 3"/>
+<!-- 底部注解 -->
+<text x="380" y="306" text-anchor="middle" class="t-sub">watermark 用于判断：<tspan font-weight="700">窗口何时触发</tspan> ｜ <tspan font-weight="700">窗口状态何时可以清理</tspan>；迟到数据处理策略另行配置</text>
+</svg>
+  </div></div>
+  <div class="dbtag"><b>DB 对照</b>：有界输入由文件结尾提供完整性依据；无界输入使用 watermark 估计事件时间进度。示例中的 2 分钟是配置的乱序容忍量：取值越大，触发延迟越高；取值越小，迟到记录越多。</div>
+  <div class="punch">watermark 是<b>进度估计</b>，不是拒收规则。它决定计算何时触发；<code>allowedLateness</code>、侧输出等策略决定迟到记录如何处理。</div>
+  <div class="foot"><span>三、事件时间、watermark 与迟到数据</span></div>
+</section>
+
+<!-- ============ S10 迟到与窗口状态 ============ -->
+<section class="slide">
+  <div class="kicker">三、事件时间、watermark 与迟到数据</div>
+  <h1><code>allowedLateness</code>：窗口触发后继续保留状态</h1>
+  <div class="lede">以 <code>allowedLateness = 5 分钟</code> 为例：watermark 首次越过窗口结束时间时先输出结果，窗口状态随后再保留 5 分钟，以接收迟到记录。</div>
+  <div class="body"><div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 350" role="img" aria-label="W1 状态在 watermark 首次触发后继续保留五分钟：o8 在允许迟到时间内到达可将结果订正为 85，状态清理后到达则被丢弃或发送到侧输出">
+<style>
+text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", "Segoe UI", "Microsoft YaHei", sans-serif; }
+.t-title { font-size: 13px; font-weight: 600; fill: #1c1917; }
+.t-sub { font-size: 11px; fill: #57534e; }
+.t-label { font-size: 12px; fill: #1c1917; }
+.t-micro { font-size: 10px; fill: #a8a29e; }
+</style>
+<defs>
+<marker id="fI2-t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#0f766e"/></marker>
+<marker id="fI2-o" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#9a3412"/></marker>
+</defs>
+<!-- 时间轴 -->
+<line x1="60" y1="170" x2="730" y2="170" stroke="#d6d3d1" stroke-width="1.5"/>
+<g class="t-micro">
+<text x="90" y="190" text-anchor="middle">10:00</text>
+<text x="237" y="190" text-anchor="middle">10:05</text>
+<text x="384" y="190" text-anchor="middle">10:10</text>
+<text x="531" y="190" text-anchor="middle">10:15</text>
+</g>
+<!-- W1 区间与状态生命条 -->
+<rect x="90" y="120" width="147" height="50" fill="#f6f1e7"/>
+<text x="163" y="112" text-anchor="middle" class="t-micro">W1 的事件时间区间</text>
+<rect x="90" y="60" width="294" height="34" rx="17" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/>
+<text x="237" y="82" text-anchor="middle" class="t-label" fill="#0f766e" font-weight="700">W1 状态保留期：首次触发后保留至 WM 越过 10:10</text>
+<line x1="384" y1="46" x2="384" y2="196" stroke="#9a3412" stroke-width="2" stroke-dasharray="6 4"/>
+<text x="384" y="38" text-anchor="middle" class="t-micro" fill="#9a3412" font-weight="700">清理时点：窗口结束时间 10:05 + 允许迟到 5 分钟</text>
+<!-- 关窗点 -->
+<line x1="237" y1="120" x2="237" y2="196" stroke="#0f766e" stroke-width="2" stroke-dasharray="4 3"/>
+<text x="237" y="212" text-anchor="middle" class="t-micro" fill="#0f766e">WM 到 10:05：首次触发，输出 ¥60</text>
+<!-- o8 两种命运 -->
+<rect x="60" y="240" width="330" height="88" rx="12" fill="#ffffff" stroke="#0f766e" stroke-width="1.4"/>
+<text x="80" y="266" class="t-label" fill="#0f766e" font-weight="700">情况一：o8 在 WM=10:07 时到达</text>
+<text x="80" y="290" class="t-sub">o8：事件时间 10:02，金额 ¥25</text>
+<text x="80" y="312" class="t-sub">状态仍在 → 计入 W1 → <tspan font-weight="700" fill="#0f766e">订正结果 60 → 85</tspan></text>
+<rect x="420" y="240" width="320" height="88" rx="12" fill="#ffedd5" stroke="#9a3412" stroke-width="1.4"/>
+<text x="440" y="266" class="t-label" fill="#9a3412" font-weight="700">情况二：o8 在 WM=10:11 时到达</text>
+<text x="440" y="290" class="t-sub">W1 状态已在清理时点删除</text>
+<text x="440" y="312" class="t-sub">o8 按配置<tspan font-weight="700" fill="#9a3412">丢弃或发送到侧输出</tspan>，W1 不再订正</text>
+<line x1="310" y1="60" x2="200" y2="236" stroke="#0f766e" stroke-width="1.2" stroke-dasharray="3 3" marker-end="url(#fI2-t)"/>
+<line x1="560" y1="170" x2="580" y2="236" stroke="#9a3412" stroke-width="1.2" stroke-dasharray="3 3" marker-end="url(#fI2-o)"/>
+<text x="380" y="344" text-anchor="middle" class="t-sub">允许迟到时间不会推迟首次触发；它只延长触发后的状态保留期，以支持后续订正</text>
+</svg>
+  </div></div>
+  <div class="punch"><code>allowedLateness</code> 控制首次触发后的额外状态保留期：<b>保留期内可以订正结果，状态清理后则无法由该窗口算子继续订正</b>。</div>
+  <div class="foot"><span>三、事件时间、watermark 与迟到数据</span></div>
+</section>
+
+<!-- ============ S11 迟到的连锁 ============ -->
+<section class="slide">
+  <div class="kicker">三、事件时间、watermark 与迟到数据</div>
+  <h1>窗口结果的订正会继续影响下游计算</h1>
+  <div class="lede">当 W1 由 60 订正为 85 时，下游若已根据旧值计算全天累计 GMV，就需要根据 changelog 语义同步更新受影响的结果。</div>
+  <div class="body"><div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 350" role="img" aria-label="前缀累计示例：下游已根据 W1 等于 60、W2 等于 170 计算累计值；W1 订正为 85 后，后续累计结果需要按 changelog 语义更新">
+<style>
+text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", "Segoe UI", "Microsoft YaHei", sans-serif; }
+.t-title { font-size: 13px; font-weight: 600; fill: #1c1917; }
+.t-sub { font-size: 11px; fill: #57534e; }
+.t-label { font-size: 12px; fill: #1c1917; }
+.t-micro { font-size: 10px; fill: #a8a29e; }
+.t-mono { font-size: 13px; font-weight: 700; }
+</style>
+<defs>
+<marker id="fJ2-t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#0f766e"/></marker>
+<marker id="fJ2-o" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#9a3412"/></marker>
+</defs>
+<!-- 上游 -->
+<text x="150" y="34" text-anchor="middle" class="t-title">上游：窗口 GMV 任务</text>
+<rect x="60" y="52" width="86" height="40" rx="9" fill="#ffffff" stroke="#0f766e" stroke-width="1.3"/><text x="103" y="76" text-anchor="middle" class="t-mono" fill="#0f766e">W1: 60</text>
+<rect x="156" y="52" width="86" height="40" rx="9" fill="#ffffff" stroke="#0f766e" stroke-width="1.3"/><text x="199" y="76" text-anchor="middle" class="t-mono" fill="#0f766e">W2: 170</text>
+<line x1="60" y1="112" x2="242" y2="112" stroke="#0f766e" stroke-width="1.6" marker-end="url(#fJ2-t)"/>
+<text x="150" y="132" text-anchor="middle" class="t-micro">窗口结果已经发布</text>
+<!-- 下游 -->
+<text x="480" y="34" text-anchor="middle" class="t-title">下游：全天累计 GMV 任务</text>
+<rect x="330" y="52" width="86" height="40" rx="9" fill="#f6f1e7" stroke="#e8e0d4"/><text x="373" y="76" text-anchor="middle" class="t-mono">累计 60</text>
+<rect x="426" y="52" width="86" height="40" rx="9" fill="#f6f1e7" stroke="#e8e0d4"/><text x="469" y="76" text-anchor="middle" class="t-mono">累计 230</text>
+<rect x="522" y="52" width="86" height="40" rx="9" fill="#f6f1e7" stroke="#e8e0d4"/><text x="565" y="76" text-anchor="middle" class="t-mono">累计 …</text>
+<line x1="330" y1="112" x2="700" y2="112" stroke="#0f766e" stroke-width="1.6" marker-end="url(#fJ2-t)"/>
+<text x="520" y="132" text-anchor="middle" class="t-micro">后续累计值均包含 W1 的原值 60</text>
+<!-- o8 到达 -->
+<rect x="60" y="164" width="240" height="50" rx="10" fill="#ffedd5" stroke="#9a3412" stroke-width="1.5"/>
+<text x="180" y="185" text-anchor="middle" class="t-label" fill="#9a3412" font-weight="700">o8 迟到：W1 由 60 更新为 85</text>
+<text x="180" y="204" text-anchor="middle" class="t-micro" fill="#9a3412">输出 retract：−60，+85</text>
+<line x1="300" y1="189" x2="420" y2="189" stroke="#9a3412" stroke-width="2.2" stroke-dasharray="7 5" marker-end="url(#fJ2-o)"/>
+<text x="360" y="180" text-anchor="middle" class="t-micro" fill="#9a3412" font-weight="700">订正记录传递到下游</text>
+<!-- 下游连锁 -->
+<rect x="426" y="164" width="120" height="50" rx="10" fill="#ffedd5" stroke="#9a3412" stroke-width="1.3"/><text x="486" y="185" text-anchor="middle" class="t-mono" fill="#9a3412">230 → 255</text><text x="486" y="204" text-anchor="middle" class="t-micro" fill="#9a3412">更新后重新发布</text>
+<rect x="556" y="164" width="150" height="50" rx="10" fill="#ffedd5" stroke="#9a3412" stroke-width="1.3"/><text x="631" y="185" text-anchor="middle" class="t-mono" fill="#9a3412">后续累计值均 +25</text><text x="631" y="204" text-anchor="middle" class="t-micro" fill="#9a3412">按前缀累计语义依次订正</text>
+<!-- revision 三形态 -->
+<rect x="60" y="248" width="646" height="78" rx="12" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.2"/>
+<text x="80" y="274" class="t-label" font-weight="700">订正结果的三种表示方式，具体形式取决于下游接口协议：</text>
+<text x="80" y="302" class="t-sub">① 增量 <tspan class="t-mono" fill="#0f766e">+25</tspan>（增量日志）　　② 主键覆盖 <tspan class="t-mono" fill="#0f766e">60 → 85</tspan>（upsert）　　③ 撤回并重发 <tspan class="t-mono" fill="#9a3412">−60, +85</tspan>（retract，与 binlog 同构）</text>
+</svg>
+  </div></div>
+  <div class="punch">在前缀累计示例中，W1 的变化会影响其后的累计结果。订正要求上下游就 <b>append、upsert 或 retract</b> 等 changelog 语义达成一致；Paimon 主键表与 changelog producer 可以保存并继续传播这种变化。</div>
+  <div class="foot"><span>三、事件时间、watermark 与迟到数据</span></div>
+</section>
+
+<!-- ============ S12 问题四：状态 ============ -->
+<section class="slide">
+  <div class="kicker">四、状态的托管与持久化</div>
+  <h1>状态保存会影响后续计算的中间信息</h1>
+  <div class="lede">窗口累加器、join 缓冲区和 distinct 已处理的 key 都会影响后续记录的计算结果，因此需要作为状态持续保存。</div>
+  <div class="body"><div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 340" role="img" aria-label="Flink 托管状态示意：订单流进入常驻窗口聚合算子，算子通过 State Backend 保存窗口累加器，并由运行时执行快照、恢复与扩缩容重分布">
+<style>
+text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", "Segoe UI", "Microsoft YaHei", sans-serif; }
+.t-label { font-size: 12.5px; fill: #1c1917; }
+.t-sub { font-size: 11px; fill: #57534e; }
+.t-micro { font-size: 10.5px; fill: #a8a29e; }
+</style>
+<defs>
+<marker id="fE-t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#0f766e"/></marker>
+<marker id="fE-o" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#9a3412"/></marker>
+</defs>
+<g fill="#0f766e">
+<circle cx="60" cy="90" r="5"/><circle cx="60" cy="140" r="5"/><circle cx="60" cy="190" r="5"/>
+</g>
+<text x="60" y="60" text-anchor="middle" class="t-sub">订单流</text>
+<text x="60" y="230" text-anchor="middle" class="t-micro">o1 o2 o4 o3…</text>
+<line x1="80" y1="140" x2="150" y2="140" stroke="#0f766e" stroke-width="1.8" marker-end="url(#fE-t)"/>
+<rect x="150" y="60" width="260" height="200" rx="12" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.4"/>
+<text x="280" y="86" text-anchor="middle" class="t-label" font-weight="700">窗口聚合算子（常驻）</text>
+<rect x="170" y="104" width="220" height="132" rx="8" fill="#f6f1e7" stroke="#e8e0d4"/>
+<text x="184" y="126" class="t-micro" fill="#9a3412" font-weight="700">状态：窗口 → 累加器</text>
+<text x="196" y="152" class="t-label">W1 → ¥60</text>
+<text x="196" y="178" class="t-label">W2 → ¥170</text>
+<text x="196" y="204" class="t-label">W3 → 累积中…</text>
+<text x="330" y="152" class="t-micro">+¥25（o8）</text>
+<text x="330" y="204" class="t-micro" fill="#9a3412">后续记录将更新该状态</text>
+<rect x="500" y="60" width="220" height="200" rx="12" fill="#eefaf7" stroke="#0f766e" stroke-width="1.4"/>
+<text x="610" y="86" text-anchor="middle" class="t-label" fill="#0f766e" font-weight="700">State Backend（运行时管理）</text>
+<text x="524" y="118" class="t-sub">内存 / RocksDB</text>
+<text x="524" y="146" class="t-micro">· 定期快照</text>
+<text x="524" y="166" class="t-micro">· 故障恢复</text>
+<text x="524" y="186" class="t-micro">· 扩缩容重分布</text>
+<text x="524" y="216" class="t-micro" fill="#0f766e">用户声明 ValueState，</text>
+<text x="524" y="232" class="t-micro" fill="#0f766e">快照与恢复由运行时完成</text>
+<line x1="410" y1="160" x2="498" y2="160" stroke="#9a3412" stroke-width="1.8" marker-end="url(#fE-o)"/>
+<g>
+<rect x="60" y="290" width="200" height="38" rx="9" fill="#ffffff" stroke="#d6d3d1"/>
+<text x="160" y="314" text-anchor="middle" class="t-micro">DBMS synopsis：系统内部，不可见</text>
+<rect x="285" y="290" width="200" height="38" rx="9" fill="#ffffff" stroke="#d6d3d1"/>
+<text x="385" y="314" text-anchor="middle" class="t-micro">Storm Core：应用自行管理状态</text>
+<rect x="510" y="290" width="210" height="38" rx="9" fill="#ffedd5" stroke="#9a3412" stroke-width="1.3"/>
+<text x="615" y="314" text-anchor="middle" class="t-micro" fill="#9a3412" font-weight="700">Flink：用户声明，运行时托管</text>
+</g>
+</svg>
+  </div></div>
+  <div class="dbtag"><b>DB 对照</b>：批处理的中间数据通常随查询结束释放；流式作业的状态需要在长期运行期间持续存在。<b>凡是会影响后续输入处理结果的信息，都属于状态</b>。</div>
+  <div class="punch">状态管理经历了从系统内部结构、应用自行维护到<b>用户声明、运行时托管</b>的演进。只有纳入运行时管理，状态才能统一参与快照、恢复与扩缩容。</div>
+  <div class="foot"><span>四、状态的托管与持久化</span></div>
+</section>
+
+<!-- ============ S13 问题五：checkpoint ============ -->
+<section class="slide">
+  <div class="kicker">五、checkpoint 与故障恢复</div>
+  <h1>checkpoint：为分布式计算图保存一致状态快照</h1>
+  <div class="lede">长期运行的有状态算子可能发生故障。仅重放输入不足以恢复计算，还必须同时保存算子状态与可重放数据源的消费位点（offset）。</div>
+  <div class="body"><div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 340" role="img" aria-label="checkpoint 一致快照示意：barrier 沿两个 Kafka 分区输入传播，有状态算子记录一致切面，快照同时保存窗口状态与 source offset">
+<style>
+text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", "Segoe UI", "Microsoft YaHei", sans-serif; }
+.t-label { font-size: 12.5px; fill: #1c1917; }
+.t-sub { font-size: 11px; fill: #57534e; }
+.t-micro { font-size: 10.5px; fill: #a8a29e; }
+</style>
+<defs>
+<marker id="fF-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#a8a29e"/></marker>
+</defs>
+<text x="70" y="80" class="t-sub" text-anchor="end">Kafka 分区 p0</text>
+<line x1="90" y1="100" x2="500" y2="100" stroke="#d6d3d1" stroke-width="1.5"/>
+<g fill="#0f766e">
+<circle cx="130" cy="100" r="4"/><circle cx="170" cy="100" r="4"/><circle cx="210" cy="100" r="4"/>
+<circle cx="350" cy="100" r="4"/><circle cx="390" cy="100" r="4"/><circle cx="430" cy="100" r="4"/>
+</g>
+<line x1="280" y1="84" x2="280" y2="116" stroke="#9a3412" stroke-width="4"/>
+<text x="280" y="76" text-anchor="middle" class="t-micro" fill="#9a3412" font-weight="700">barrier-42</text>
+<text x="70" y="160" class="t-sub" text-anchor="end">Kafka 分区 p1</text>
+<line x1="90" y1="180" x2="500" y2="180" stroke="#d6d3d1" stroke-width="1.5"/>
+<g fill="#0f766e">
+<circle cx="150" cy="180" r="4"/><circle cx="200" cy="180" r="4"/><circle cx="250" cy="180" r="4"/>
+<circle cx="360" cy="180" r="4"/><circle cx="410" cy="180" r="4"/><circle cx="460" cy="180" r="4"/>
+</g>
+<line x1="300" y1="164" x2="300" y2="196" stroke="#9a3412" stroke-width="4"/>
+<text x="300" y="156" text-anchor="middle" class="t-micro" fill="#9a3412" font-weight="700">barrier-42</text>
+<line x1="290" y1="60" x2="290" y2="230" stroke="#9a3412" stroke-width="1.8" stroke-dasharray="7 5"/>
+<text x="290" y="52" text-anchor="middle" class="t-label" fill="#9a3412" font-weight="700">一致切面（Chandy–Lamport）</text>
+<rect x="520" y="100" width="120" height="80" rx="12" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.4"/>
+<text x="580" y="132" text-anchor="middle" class="t-label" font-weight="700">有状态算子</text>
+<text x="580" y="156" text-anchor="middle" class="t-micro">barrier 到达各输入后记录一致状态</text>
+<line x1="500" y1="120" x2="518" y2="128" stroke="#a8a29e" stroke-width="1.5" marker-end="url(#fF-g)"/>
+<line x1="500" y1="170" x2="518" y2="152" stroke="#a8a29e" stroke-width="1.5" marker-end="url(#fF-g)"/>
+<rect x="150" y="260" width="480" height="60" rx="12" fill="#ffedd5" stroke="#9a3412" stroke-width="1.4"/>
+<text x="390" y="285" text-anchor="middle" class="t-label" fill="#9a3412" font-weight="700">checkpoint #42 = { W1=(3, ¥60) 未触发，W2=(1, ¥40) } + { offset：已消费到 o3 }</text>
+<text x="390" y="306" text-anchor="middle" class="t-micro" fill="#9a3412">恢复：加载快照并从 offset 重放；恢复后的状态等价于未发生故障的执行</text>
+<line x1="560" y1="180" x2="450" y2="258" stroke="#9a3412" stroke-width="1.5" stroke-dasharray="4 3"/>
+<rect x="650" y="240" width="90" height="52" rx="10" fill="#eefaf7" stroke="#0f766e"/>
+<text x="695" y="262" text-anchor="middle" class="t-micro" fill="#0f766e">异步快照</text>
+<text x="695" y="280" text-anchor="middle" class="t-micro" fill="#0f766e">无需停止整个作业</text>
+</svg>
+  </div></div>
+  <div class="dbtag"><b>DB 对照</b>：数据库通过 checkpoint 与日志位点恢复；Flink 将这一思想扩展到分布式计算图。barrier 在拓扑中传播，多输入算子可能短暂等待对齐，但通常无需停止整个作业。</div>
+  <div class="punch">checkpoint 不是性能优化，而是<b>有状态流计算实现一致恢复的基础</b>：无状态作业可以直接重放输入，有状态作业还必须恢复与输入进度一致的状态快照。</div>
+  <div class="foot"><span>五、checkpoint 与故障恢复</span></div>
+</section>
+
+<!-- ============ S14 问题五：恢复对比 ============ -->
+<section class="slide">
+  <div class="kicker">五、checkpoint 与故障恢复</div>
+  <h1>不同状态机制对应不同的恢复语义</h1>
+  <div class="lede">示例条件：聚合算子处理完 o6、尚未接收 o7 时发生故障。此时 W2 的状态应为 (o4, o6) = ¥100；恢复后继续处理 o7，最终结果应为 ¥170。</div>
+  <div class="body"><div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 300" role="img" aria-label="Storm Core、Trident 与 Flink 的恢复语义对比：结果取决于故障前是否持久化算子状态、批次标识以及 source offset">
+<style>
+text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", "Segoe UI", "Microsoft YaHei", sans-serif; }
+.t-label { font-size: 13px; fill: #1c1917; }
+.t-sub { font-size: 11.5px; fill: #57534e; }
+.t-micro { font-size: 10.5px; fill: #a8a29e; }
+</style>
+<defs>
+<marker id="fD2-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#a8a29e"/></marker>
+</defs>
+<rect x="30" y="46" width="100" height="56" rx="10" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="80" y="80" text-anchor="middle" class="t-label" font-weight="700">Storm</text>
+<rect x="150" y="46" width="330" height="56" rx="10" fill="#f6f1e7" stroke="#e8e0d4"/>
+<text x="166" y="70" class="t-sub">示例配置：仅消息确认，未持久化算子状态</text>
+<text x="166" y="90" class="t-micro">进程故障后内存状态丢失；o6 重放到空累加器</text>
+<line x1="480" y1="74" x2="514" y2="74" stroke="#a8a29e" stroke-width="1.5" marker-end="url(#fD2-g)"/>
+<rect x="520" y="46" width="210" height="56" rx="10" fill="#ffedd5" stroke="#9a3412" stroke-width="1.4"/>
+<text x="625" y="70" text-anchor="middle" class="t-label" fill="#9a3412" font-weight="700">W2 = 60+70 = 130</text>
+<text x="625" y="90" text-anchor="middle" class="t-micro" fill="#9a3412">在该配置下得到错误结果</text>
+<rect x="30" y="126" width="100" height="56" rx="10" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="80" y="160" text-anchor="middle" class="t-label" font-weight="700">Trident</text>
+<rect x="150" y="126" width="330" height="56" rx="10" fill="#f6f1e7" stroke="#e8e0d4"/>
+<text x="166" y="150" class="t-sub">持久化内容：批次事务状态 + 批次号 txid</text>
+<text x="166" y="170" class="t-micro">状态实现依据 txid 识别重放批次，避免重复更新</text>
+<line x1="480" y1="154" x2="514" y2="154" stroke="#a8a29e" stroke-width="1.5" marker-end="url(#fD2-g)"/>
+<rect x="520" y="126" width="210" height="56" rx="10" fill="#ffffff" stroke="#0f766e" stroke-width="1.3"/>
+<text x="625" y="150" text-anchor="middle" class="t-label" fill="#0f766e" font-weight="700">W2 = 170 ✓</text>
+<text x="625" y="170" text-anchor="middle" class="t-micro">结果正确；批级提交影响延迟上限</text>
+<rect x="30" y="206" width="100" height="56" rx="10" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="80" y="240" text-anchor="middle" class="t-label" font-weight="700">Flink</text>
+<rect x="150" y="206" width="330" height="56" rx="10" fill="#f6f1e7" stroke="#e8e0d4"/>
+<text x="166" y="230" class="t-sub">持久化内容：checkpoint #42 = 状态 + source offset</text>
+<text x="166" y="250" class="t-micro">加载一致快照，从 offset 重放 o6，再继续处理 o7</text>
+<line x1="480" y1="234" x2="514" y2="234" stroke="#a8a29e" stroke-width="1.5" marker-end="url(#fD2-g)"/>
+<rect x="520" y="206" width="210" height="56" rx="10" fill="#eefaf7" stroke="#0f766e" stroke-width="1.4"/>
+<text x="625" y="230" text-anchor="middle" class="t-label" fill="#0f766e" font-weight="700">W2 = 170 ✓</text>
+<text x="625" y="250" text-anchor="middle" class="t-micro" fill="#0f766e">结果正确；异步快照减少全局停顿</text>
+</svg>
+  </div></div>
+  <div class="punch">三个示例都依赖重放，差别在于<b>故障前持久化了哪些状态与进度信息</b>。若 Flink 使用非事务、非幂等 sink，恢复后的内部状态可以正确，但外部仍可能收到重复输出。</div>
+  <div class="foot"><span>五、checkpoint 与故障恢复</span></div>
+</section>
+
+<!-- ============ S15 问题六：exactly-once ============ -->
+<section class="slide">
+  <div class="kicker">六、端到端 exactly-once 与 Paimon</div>
+  <h1>状态 exactly-once 不等于端到端 exactly-once</h1>
+  <div class="lede">checkpoint 可以将内部状态恢复到一致切面；但非事务、非幂等 sink 已发布的输出无法随之回滚，因此还需要控制外部可见性。</div>
+  <div class="body"><div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 360" role="img" aria-label="端到端 exactly-once 示意：可重放 source、checkpoint 与事务或幂等 sink 协作；事务按 checkpoint 划分，并在对应 checkpoint 成功后对外可见">
+<style>
+text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", "Segoe UI", "Microsoft YaHei", sans-serif; }
+.t-title { font-size: 13px; font-weight: 600; fill: #1c1917; }
+.t-sub { font-size: 11px; fill: #57534e; }
+.t-label { font-size: 12px; fill: #1c1917; }
+.t-micro { font-size: 10px; fill: #a8a29e; }
+</style>
+<defs>
+<marker id="fK2-t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#0f766e"/></marker>
+<marker id="fK2-o" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#9a3412"/></marker>
+</defs>
+<!-- 两档定义 -->
+<rect x="30" y="20" width="350" height="64" rx="12" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="48" y="44" class="t-label" font-weight="700">① 状态的 exactly-once 语义（checkpoint 提供）</text>
+<text x="48" y="66" class="t-sub">重放可能发生，但恢复后的<tspan font-weight="700">状态</tspan>等价于每条记录处理一次</text>
+<rect x="400" y="20" width="336" height="64" rx="12" fill="#eefaf7" stroke="#0f766e" stroke-width="1.4"/>
+<text x="418" y="44" class="t-label" fill="#0f766e" font-weight="700">② 端到端 exactly-once（需要 sink 配合）</text>
+<text x="418" y="66" class="t-sub">可重放 source + checkpoint + <tspan font-weight="700">事务 / 幂等 sink</tspan></text>
+<!-- 2PC 时间线 -->
+<text x="30" y="122" class="t-title" fill="#0f766e">两阶段提交：以 checkpoint 作为事务协调边界</text>
+<line x1="50" y1="196" x2="730" y2="196" stroke="#d6d3d1" stroke-width="1.5" marker-end="url(#fK2-t)"/>
+<circle cx="90" cy="196" r="6" fill="#0f766e"/>
+<text x="90" y="176" text-anchor="middle" class="t-micro" fill="#0f766e" font-weight="700">CP n−1 完成</text>
+<text x="90" y="216" text-anchor="middle" class="t-micro">上次已提交</text>
+<rect x="130" y="160" width="220" height="26" rx="13" fill="#f6f1e7" stroke="#e8e0d4"/>
+<text x="240" y="177" text-anchor="middle" class="t-micro">写数据进事务 / 临时文件 · 对外不可见</text>
+<line x1="380" y1="180" x2="380" y2="212" stroke="#9a3412" stroke-width="3.5"/>
+<text x="380" y="150" text-anchor="middle" class="t-micro" fill="#9a3412" font-weight="700">barrier n 到达 → preCommit 当前事务</text>
+<text x="380" y="228" text-anchor="middle" class="t-micro">按 checkpoint 划分并预提交事务</text>
+<circle cx="510" cy="196" r="6" fill="#0f766e"/>
+<text x="510" y="176" text-anchor="middle" class="t-micro" fill="#0f766e" font-weight="700">CP n 完成</text>
+<text x="510" y="216" text-anchor="middle" class="t-micro">JobManager 通知各算子</text>
+<circle cx="640" cy="196" r="8" fill="#ccfbf1" stroke="#0f766e" stroke-width="2"/>
+<text x="640" y="172" text-anchor="middle" class="t-label" fill="#0f766e" font-weight="700">commit：对外可见</text>
+<text x="640" y="228" text-anchor="middle" class="t-micro">一次事务打包两次 CP 之间的所有写入</text>
+<!-- 崩溃分支 -->
+<rect x="30" y="260" width="706" height="80" rx="12" fill="#ffedd5" stroke="#9a3412" stroke-width="1.3"/>
+<text x="50" y="286" class="t-label" fill="#9a3412" font-weight="700">任一阶段发生故障时</text>
+<text x="50" y="310" class="t-sub">· checkpoint 未完成：中止未提交事务，从 CP n−1 重放并重新写入</text>
+<text x="50" y="330" class="t-sub">· checkpoint 已完成但提交确认丢失：恢复时依据 checkpoint 状态<tspan font-weight="700">幂等完成提交</tspan></text>
+</svg>
+  </div></div>
+  <div class="punch">端到端 exactly-once 需要可重放 source、checkpoint，以及事务或幂等 sink 协作。Paimon sink 通过 snapshot 提交与恢复协议维护外部可见性；在这些前提成立时，恢复结果与无故障执行一致。</div>
+  <div class="foot"><span>六、端到端 exactly-once 与 Paimon</span></div>
+</section>
+
+<!-- ============ S16 Paimon ============ -->
+<section class="slide">
+  <div class="kicker">六、端到端 exactly-once 与 Paimon</div>
+  <h1>Paimon 在写入、恢复与结果订正中的作用</h1>
+  <div class="lede">Paimon 不仅接收持续写入，还以已提交 snapshot 控制外部可见性；主键表保存订正后的值，可配置的 changelog producer 生成变更记录并供下游流式读取。</div>
+  <div class="body"><div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 330" role="img" aria-label="Paimon 在三个阶段中的作用：正常写入时由 Flink Writer 准备数据文件并在 checkpoint 成功后提交 snapshot；故障恢复时 snapshot reader 仅读取已提交 snapshot，committer 依据 commitUser 与 commitIdentifier 查找或幂等完成事务；结果订正时主键表保存更新值，并在配置 changelog producer 且流式读取采用 changelog 语义时向下游提供变更记录">
+<style>
+text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", "Segoe UI", "Microsoft YaHei", sans-serif; }
+.t-label { font-size: 13px; fill: #1c1917; }
+.t-sub { font-size: 11.5px; fill: #57534e; }
+.t-micro { font-size: 10.5px; fill: #a8a29e; }
+</style>
+<defs>
+<marker id="fK-t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#0f766e"/></marker>
+<marker id="fK-o" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#9a3412"/></marker>
+</defs>
+<rect x="16" y="18" width="230" height="248" rx="14" fill="#ffffff" stroke="#e8e0d4" stroke-width="1.4"/>
+<text x="131" y="46" text-anchor="middle" class="t-label" fill="#9a3412" font-weight="700">① 写入与提交</text>
+<rect x="34" y="62" width="194" height="48" rx="9" fill="#f6f1e7" stroke="#e8e0d4"/>
+<text x="131" y="82" text-anchor="middle" class="t-sub" font-weight="700">Flink Writer</text>
+<text x="131" y="100" text-anchor="middle" class="t-micro">接收插入、更新与订正记录</text>
+<line x1="131" y1="110" x2="131" y2="132" stroke="#9a3412" stroke-width="1.7" marker-end="url(#fK-o)"/>
+<rect x="34" y="136" width="194" height="48" rx="9" fill="#f6f1e7" stroke="#e8e0d4"/>
+<text x="131" y="156" text-anchor="middle" class="t-sub" font-weight="700">prepareCommit</text>
+<text x="131" y="174" text-anchor="middle" class="t-micro">flush 数据文件与 changelog 文件</text>
+<line x1="131" y1="184" x2="131" y2="202" stroke="#9a3412" stroke-width="1.7" marker-end="url(#fK-o)"/>
+<rect x="34" y="206" width="194" height="44" rx="9" fill="#ffedd5" stroke="#9a3412" stroke-width="1.3"/>
+<text x="131" y="224" text-anchor="middle" class="t-sub" fill="#9a3412" font-weight="700">checkpoint 成功后</text>
+<text x="131" y="241" text-anchor="middle" class="t-micro" fill="#9a3412">Committer 提交 snapshot</text>
+
+<rect x="265" y="18" width="230" height="248" rx="14" fill="#eefaf7" stroke="#0f766e" stroke-width="1.4"/>
+<text x="380" y="46" text-anchor="middle" class="t-label" fill="#0f766e" font-weight="700">② 故障恢复</text>
+<rect x="283" y="62" width="194" height="54" rx="9" fill="#ffffff" stroke="#99e5d8"/>
+<text x="380" y="82" text-anchor="middle" class="t-sub" font-weight="700">Flink 恢复计算状态</text>
+<text x="380" y="100" text-anchor="middle" class="t-micro">加载 state + source offset，并重放记录</text>
+<line x1="380" y1="116" x2="380" y2="134" stroke="#0f766e" stroke-width="1.7" marker-end="url(#fK-t)"/>
+<rect x="283" y="138" width="194" height="54" rx="9" fill="#ffffff" stroke="#99e5d8"/>
+<text x="380" y="158" text-anchor="middle" class="t-sub" font-weight="700">Paimon 保持外部边界</text>
+<text x="380" y="176" text-anchor="middle" class="t-micro">reader 只读取已提交 snapshot</text>
+<line x1="380" y1="192" x2="380" y2="208" stroke="#0f766e" stroke-width="1.7" marker-end="url(#fK-t)"/>
+<rect x="283" y="212" width="194" height="38" rx="9" fill="#ccfbf1" stroke="#0f766e"/>
+<text x="380" y="228" text-anchor="middle" class="t-micro" fill="#0f766e">commitUser + commitIdentifier</text>
+<text x="380" y="243" text-anchor="middle" class="t-micro" fill="#0f766e">标识事务；恢复时查找或幂等完成</text>
+
+<rect x="514" y="18" width="230" height="248" rx="14" fill="#ffffff" stroke="#e8e0d4" stroke-width="1.4"/>
+<text x="629" y="46" text-anchor="middle" class="t-label" fill="#9a3412" font-weight="700">③ 结果订正</text>
+<rect x="532" y="62" width="194" height="48" rx="9" fill="#f6f1e7" stroke="#e8e0d4"/>
+<text x="629" y="82" text-anchor="middle" class="t-sub" font-weight="700">迟到记录更新窗口结果</text>
+<text x="629" y="100" text-anchor="middle" class="t-micro">例如 W1：60 → 85</text>
+<line x1="629" y1="110" x2="629" y2="132" stroke="#9a3412" stroke-width="1.7" marker-end="url(#fK-o)"/>
+<rect x="532" y="136" width="194" height="48" rx="9" fill="#ffedd5" stroke="#9a3412" stroke-width="1.2"/>
+<text x="629" y="156" text-anchor="middle" class="t-sub" fill="#9a3412" font-weight="700">Paimon 主键表</text>
+<text x="629" y="174" text-anchor="middle" class="t-micro" fill="#9a3412">合并最新值；保留更新语义</text>
+<line x1="629" y1="184" x2="629" y2="202" stroke="#9a3412" stroke-width="1.7" marker-end="url(#fK-o)"/>
+<rect x="532" y="206" width="194" height="44" rx="9" fill="#ffffff" stroke="#9a3412"/>
+<text x="629" y="224" text-anchor="middle" class="t-micro" fill="#9a3412">producer 按配置生成 changelog</text>
+<text x="629" y="241" text-anchor="middle" class="t-micro" fill="#9a3412">流式读取按 changelog 语义传递订正</text>
+
+<rect x="16" y="280" width="728" height="36" rx="10" fill="#f6f1e7" stroke="#e8e0d4"/>
+<text x="380" y="303" text-anchor="middle" class="t-sub"><tspan font-weight="700">Flink 恢复 state/offset 并协调 checkpoint</tspan>；<tspan font-weight="700">Paimon 提交对应 snapshot，维护表可见性与订正流</tspan></text>
+</svg>
+  </div></div>
+  <div class="dbtag"><b>配置说明</b>：完整的 −U/+U changelog 并非自动产生。<code>input</code> 仅适用于完整 changelog 输入；<code>lookup</code> 与 <code>full-compaction</code> 按各自机制生成；<code>none</code> 不保证旧值完整。下游须按 changelog 语义流式读取。</div>
+  <div class="punch">恢复时，Flink 恢复 state 与 source offset；Paimon 依据事务标识幂等完成提交，reader 仅读取已提交 snapshot。订正时，主键表保存更新值，配置后的 changelog producer 将变化传递给下游。</div>
+  <div class="foot"><span>六、端到端 exactly-once 与 Paimon</span></div>
+</section>
+
+<!-- ============ S17 六问收束 ============ -->
+<section class="slide">
+  <div class="kicker">总结 · 概念对应</div>
+  <h1>无界输入改变了执行、进度与一致性机制</h1>
+  <div class="body">
+    <table class="cmp">
+      <tr><th style="width:26%">无界输入带来的变化</th><th style="width:40%">流计算机制</th><th>有界查询中的对应概念</th></tr>
+      <tr><td>① 缺少预设结束边界</td><td>常驻 dataflow：节点持续运行、输入位置固定</td><td>火山模型：open / next / close，结束后释放</td></tr>
+      <tr><td>② 执行由输入与运行时驱动</td><td>记录沿边传播，运行时调度对应算子</td><td>pull：调用方通过 next() 控制执行</td></tr>
+      <tr><td>③ 事件时间数据可能乱序</td><td>watermark 表示进度；迟到策略控制订正</td><td>文件结尾提供完整性依据</td></tr>
+      <tr><td>④ 中间结果需要跨记录保留</td><td>托管状态：用户声明、运行时管理</td><td>查询中间状态随查询结束释放</td></tr>
+      <tr><td>⑤ 故障后需恢复状态与进度</td><td>checkpoint：一致快照 + source offset 重放</td><td>checkpoint + WAL / 日志位点</td></tr>
+      <tr><td>⑥ 外部输出需去重或原子提交</td><td>事务或幂等 sink；Paimon sink 是一种实现</td><td>数据库事务提交</td></tr>
+    </table>
+  </div>
+  <div class="punch">流计算针对<b>输入无界</b>这一条件，提供持续执行、事件时间进度、状态管理和一致性恢复机制。</div>
+  <div class="foot"><span>总结 · 概念对应</span></div>
+</section>
+
+<!-- ============ S18 封底 ============ -->
+<section class="slide">
+  <div class="kicker">核心结论</div>
+  <div class="body"><div class="center">
+    <div class="big" style="font-size:32px;">
+      <span class="t">watermark</span> 提供事件时间进度<br>
+      <span class="o">checkpoint</span> 保存一致状态与恢复位置<br>
+      <span class="t">事务或幂等 sink</span> 控制外部可见性
+    </div>
+    <div style="margin:30px auto 0;max-width:860px;color:var(--sub);font-size:19px;line-height:1.8;">
+      watermark 随输入传播，checkpoint 由运行时协调，提交协议与 sink 协作。三类机制在语义上相互<b style="color:var(--ink);">正交</b>，共同保证持续计算结果可以触发、恢复并可靠地对外发布。
+    </div>
+    <div style="margin-top:40px;color:var(--muted);font-size:14px;line-height:2;">
+      延伸阅读：《流计算基础讲义》（一）DAG 与 Loop ·（二）时间·状态·容错 · qingzhu521.github.io<br>
+      Flink 官方博客：<i>An Overview of End-to-End Exactly-Once Processing in Apache Flink</i>（2018）· Apache Paimon 官方文档：Learn Paimon / Concepts
+    </div>
+  </div></div>
+  <div class="foot"><span>从数据库看流计算</span></div>
+</section>
+
+</div></div>
+<div id="num"></div>
+<div id="mobileHint" role="note">当前为纵向屏幕，请横屏查看完整内容。</div>
+<script>
+const slides=[...document.querySelectorAll('.slide')];
+let cur=0;
+function show(i){
+  cur=Math.max(0,Math.min(slides.length-1,i));
+  slides.forEach((s,j)=>s.classList.toggle('active',j===cur));
+  document.getElementById('bar').style.width=(slides.length>1?cur/(slides.length-1)*100:100)+'%';
+  document.getElementById('num').textContent=(cur+1)+' / '+slides.length;
+  history.replaceState(null,'','#'+(cur+1));
+}
+function fit(){
+  const s=Math.min(innerWidth/1280,innerHeight/720);
+  document.getElementById('deck').style.transform='scale('+s+')';
+}
+addEventListener('resize',fit);
+addEventListener('keydown',e=>{
+  if(['ArrowRight','ArrowDown',' ','PageDown','Enter'].includes(e.key)){e.preventDefault();show(cur+1);}
+  else if(['ArrowLeft','ArrowUp','PageUp'].includes(e.key)){e.preventDefault();show(cur-1);}
+  else if(e.key==='Home')show(0);
+  else if(e.key==='End')show(slides.length-1);
+});
+let tx=null;
+addEventListener('touchstart',e=>tx=e.touches[0].clientX);
+addEventListener('touchend',e=>{
+  if(tx===null)return;
+  const dx=e.changedTouches[0].clientX-tx;
+  if(Math.abs(dx)>50)show(cur+(dx<0?1:-1));
+  tx=null;
+});
+document.getElementById('viewport').addEventListener('click',e=>{
+  if(e.clientX>innerWidth*0.75)show(cur+1);
+  else if(e.clientX<innerWidth*0.25)show(cur-1);
+});
+const h=parseInt((location.hash||'').slice(1),10);
+fit();show(isNaN(h)?0:h-1);
+</script>
+</body>
+</html>
