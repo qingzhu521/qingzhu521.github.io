@@ -1,0 +1,56 @@
+<link rel="stylesheet" href="{{ '/assets/css/capability-frontier-demo.css' | relative_url }}">
+<section class="cf-demo" id="capability-frontier-demo" aria-labelledby="cf-title">
+  <header class="cf-header">
+    <p class="cf-eyebrow">先看动画，再读 3.1</p>
+    <h3 id="cf-title">cap 的推进与 frontier 的完整性边界</h3>
+    <div class="cf-definitions">
+      <p><strong>cap：发送权限。</strong><br>cap 是 capability 的简称。推进 cap，就放弃更早时间的发送权。推进不能回退。</p>
+      <p><strong>frontier：完整性边界。</strong><br>存在边界点 f ≤ t，时间 t 仍未确定。不存在，时间 t 已收齐。</p>
+      <p><strong>antichain：组成边界的互不可比时间点。</strong><br>本例使用整数时间，非空边界只有一个点。多维时间可能需要多个点。<a href="#frontier-completeness-map">看二维例子 →</a></p>
+    </div>
+  </header>
+  <div class="cf-controls" hidden>
+    <button type="button" class="cf-play" data-cf="play">播放</button>
+    <button type="button" data-cf="previous">上一步</button>
+    <button type="button" data-cf="next">下一步</button>
+    <span class="cf-counter" data-cf="counter"></span>
+  </div>
+  <ol class="cf-steps" aria-label="选择动画步骤" hidden></ol>
+  <div class="cf-event" aria-live="polite" aria-atomic="true">
+    <strong data-cf="event-title">1. A 持有 cap@5</strong>
+    <p data-cf="event-detail">当前没有消息。A 以后仍能发送时间 5 的数据。B 还不能确认时间 5 已经收齐。</p>
+  </div>
+  <div class="cf-stage" role="group" aria-label="A 向 B 发送一条时间为 5 的消息">
+    <div class="cf-node cf-sender">
+      <strong>发送方 A</strong>
+      <span class="cf-node-label">A 持有的 capability</span>
+      <span class="cf-cap" data-cf="cap">cap@5</span>
+      <span class="cf-node-note" data-cf="cap-note">仍能发送时间 5</span>
+    </div>
+    <div class="cf-wire" aria-hidden="true"><span>数据方向</span></div>
+    <div class="cf-node cf-receiver">
+      <strong>接收方 B</strong>
+      <span class="cf-node-label">B 输入端口的 frontier</span>
+      <span class="cf-frontier" data-cf="frontier">{5}</span>
+      <span class="cf-node-note" data-cf="inbox">输入队列为空</span>
+    </div>
+    <div class="cf-message" data-cf="message" aria-hidden="true">msg@5</div>
+    <p class="cf-message-status" data-cf="message-status">没有消息，不代表不会再来消息。</p>
+  </div>
+  <div class="cf-calculation">
+    <span>本例取发送权限和未消费消息中的最小时间：</span>
+    <strong data-cf="calculation">发送权限 {5} ＋ 未消费消息 ∅ → frontier {5}</strong>
+  </div>
+  <div class="cf-time-check">
+    <p class="cf-time-heading">选一个逻辑时间，检查 B 是否已经收齐：</p>
+    <div class="cf-times" role="group" aria-label="选择要检查的逻辑时间" hidden></div>
+    <div class="cf-verdict" aria-live="polite" aria-atomic="true">
+      <strong data-cf="verdict">时间 5 还不能确认收齐</strong>
+      <span data-cf="comparison">frontier 中存在 5 ≤ 5。</span>
+      <span data-cf="reason">A 仍保留发送时间 5 的权限。</span>
+    </div>
+  </div>
+  <p class="cf-footnote">本例只有 A → B 一条通路。传输不改变时间。每一步显示进度汇总后的状态。这里观察 B 的输入 frontier。确认输出完整时，应观察结果输出端口的 frontier。</p>
+  <noscript><p>启用 JavaScript 后可以播放。关键过程：A 发送 msg@5；A 把 cap@5 推进到 cap@6；msg@5 仍让 frontier 停在 {5}；B 消费消息后，frontier 才能推进到 {6}。</p></noscript>
+</section>
+<script src="{{ '/assets/js/capability-frontier-demo.js' | relative_url }}" defer></script>

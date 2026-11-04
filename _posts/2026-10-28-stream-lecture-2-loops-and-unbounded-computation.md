@@ -42,22 +42,168 @@ tags: [timely-dataflow, differential-dataflow, 迭代计算, 递归sql]
 
 > 系列阅读：[一：并行与 DAG]({{ '/2026/07/27/stream-lecture-1-dag-and-loop/' | relative_url }}) · [二：循环与无界计算]({{ '/2026/10/28/stream-lecture-2-loops-and-unbounded-computation/' | relative_url }}) · [三：事件时间、状态与容错]({{ '/2026/08/05/stream-lecture-2-time-state-and-fault-tolerance/' | relative_url }})
 
-第一篇用依赖关系解释并行执行。这一篇打开两个边界：**计算需要把结果送回来继续算时，怎样组织循环；外部输入不断变化时，怎样确认某个阶段的循环结果已经完整。**
+第一篇讨论固定算子的静态计算图。这一篇从同一张持股表出发。查询需要沿持股关系继续查找。新发现的公司会再次成为输入。
 
-先固定一张持股表，沿“查表、发现新公司、再次查表”讲清一次递归。随后比较同步轮次与带逻辑时间的异步执行，再逐步拆开 capability、消息计数、frontier 和嵌套作用域。最后让同一张持股表持续新增、删除，跟踪一个逻辑版本从输入到完整结果的全过程。
+我们先用 Datalog 表达递归。再用最小不动点定义答案。随后讨论反馈循环怎样执行。最后介绍 Timely 怎样确认计算进度。
 
-阅读顺序如下；其中 §3.4 保留完整的偏序、嵌套路径和实验推演，适合结合图表慢读。
+前半篇固定输入。第四章再让持股表持续变化。
 
-1. **[循环从哪里来](#loops)**：回边复用什么，去重为什么能让本例终止。
-2. **[怎样推进循环](#scheduling)**：轮次屏障与逻辑时间分别组织哪些工作。
-3. **[怎样确认结果完整](#progress)**：从一个整数时间到嵌套循环与双输入 join。
-4. **[输入持续变化以后](#unbounded)**：外部阶段、内部迭代、结果更新与状态保留怎样配合。
-5. **[落到程序与查询](#applications)**：递归 SQL、相关搜索、前缀和与作用域封装。
+1. **[从固定表达式到递归](#loops)**：SQL、Datalog 与最小不动点。
+2. **[循环怎样执行](#scheduling)**：同步轮次与 Timely。
+3. **[怎样确认结果完整](#progress)**：逻辑时间、capability 与 frontier。
+4. **[输入持续变化以后](#unbounded)**：输入版本与递归结果的维护。
+5. **[把循环用于其他查询](#applications)**：相关搜索、前缀和与作用域。
 
-## 1. 循环从哪里来：同一个 join 为什么要反复执行 {#loops}
+## 1. 从固定表达式到递归 {#loops}
 
-<figure class="fig-card">
-<svg class="fig-svg" viewBox="0 0 760 420" role="img" aria-label="左：甲丙丁戊组成闭合持股环，戊以红色虚线反向持有甲；右：Δ输入、JOIN、去重、反馈组成闭合计算环，已知集合为侧向输出">
+### 1.1 固定次数的连接为什么不够
+
+第一篇限定了经典关系代数。查询采用集合语义。表达式固定且有限。这类表达式与域独立的一阶关系演算具有相同表达能力。参见《数据库基础》[定理 5.3.10](https://webdam.di.ens.fr/Alice/pdfs/Chapter-5.pdf)。
+
+非递归 SQL 的经典关系代数部分属于这个范围。引擎可以把表达式组织成静态 DAG。**表达边界来自算子及其组合规则。** 静态图中的一个节点也可以封装递归程序。
+
+继续使用持股表 `holds(holder, owned)`。`holder` 表示股东。`owned` 表示被持有的公司。自然人 P 持有甲和丙。甲持有乙和丙。乙持有丙。丙持有丁。丁持有戊。戊又持有甲。
+
+查询只关心从 P 可以到达哪些公司。它不计算持股比例。
+
+扫描持股表可以找到第一层公司。再做一次连接，可以找到第二层公司。固定次数的连接只能覆盖固定层数。
+
+<figure class="fig-card" id="fixed-join-depth-example">
+<svg class="fig-svg" viewBox="0 0 720 360" role="img" aria-label="固定四轮的静态展开图：数据两轮收敛时后两轮空转，数据六轮才收敛时答案落在图外">
+<defs>
+<marker id="s31-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#57534e"/></marker>
+<marker id="s31-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#b91c1c"/></marker>
+</defs>
+<text x="24" y="30" class="t-title">固定四轮的连接，处理两种输入</text>
+<g class="t-sub">
+<text x="24" y="80">静态展开（固定 4 轮）</text>
+<text x="24" y="170">数据 A：第 2 轮收敛</text>
+<text x="24" y="260">数据 B：第 6 轮才收敛</text>
+</g>
+<g stroke="#57534e" stroke-width="1.5" fill="none">
+<line x1="266" y1="75" x2="280" y2="75" marker-end="url(#s31-ink)"/><line x1="378" y1="75" x2="392" y2="75" marker-end="url(#s31-ink)"/><line x1="490" y1="75" x2="504" y2="75" marker-end="url(#s31-ink)"/>
+</g>
+<g>
+<rect x="170" y="56" width="96" height="38" rx="10" fill="#ffffff" stroke="#57534e" stroke-width="1.4"/><text x="218" y="80" text-anchor="middle" class="t-label">第 1 轮</text>
+<rect x="282" y="56" width="96" height="38" rx="10" fill="#ffffff" stroke="#57534e" stroke-width="1.4"/><text x="330" y="80" text-anchor="middle" class="t-label">第 2 轮</text>
+<rect x="394" y="56" width="96" height="38" rx="10" fill="#ffffff" stroke="#57534e" stroke-width="1.4"/><text x="442" y="80" text-anchor="middle" class="t-label">第 3 轮</text>
+<rect x="506" y="56" width="96" height="38" rx="10" fill="#ffffff" stroke="#57534e" stroke-width="1.4"/><text x="554" y="80" text-anchor="middle" class="t-label">第 4 轮</text>
+</g>
+<g stroke="#0f766e" stroke-width="1.5" fill="none">
+<line x1="266" y1="165" x2="280" y2="165" marker-end="url(#s31-ink)"/><line x1="378" y1="165" x2="392" y2="165" marker-end="url(#s31-ink)"/><line x1="490" y1="165" x2="504" y2="165" marker-end="url(#s31-ink)"/>
+</g>
+<g>
+<rect x="170" y="146" width="96" height="38" rx="10" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="218" y="170" text-anchor="middle" class="t-label">第 1 轮</text>
+<rect x="282" y="146" width="96" height="38" rx="10" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="330" y="170" text-anchor="middle" class="t-label">第 2 轮 ✓</text>
+<rect x="394" y="146" width="96" height="38" rx="10" fill="#f6f1e7" stroke="#a8a29e" stroke-width="1.4" stroke-dasharray="5 4"/><text x="442" y="170" text-anchor="middle" class="t-sub">空转</text>
+<rect x="506" y="146" width="96" height="38" rx="10" fill="#f6f1e7" stroke="#a8a29e" stroke-width="1.4" stroke-dasharray="5 4"/><text x="554" y="170" text-anchor="middle" class="t-sub">空转</text>
+</g>
+<text x="386" y="212" text-anchor="middle" class="t-label" fill="#9a3412" font-weight="600">两轮已经得到完整结果，后两轮没有新增结果</text>
+<g stroke="#0f766e" stroke-width="1.5" fill="none">
+<line x1="266" y1="255" x2="280" y2="255" marker-end="url(#s31-ink)"/><line x1="378" y1="255" x2="392" y2="255" marker-end="url(#s31-ink)"/><line x1="490" y1="255" x2="504" y2="255" marker-end="url(#s31-ink)"/>
+</g>
+<g>
+<rect x="170" y="236" width="96" height="38" rx="10" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="218" y="260" text-anchor="middle" class="t-label">第 1 轮</text>
+<rect x="282" y="236" width="96" height="38" rx="10" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="330" y="260" text-anchor="middle" class="t-label">第 2 轮</text>
+<rect x="394" y="236" width="96" height="38" rx="10" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="442" y="260" text-anchor="middle" class="t-label">第 3 轮</text>
+<rect x="506" y="236" width="96" height="38" rx="10" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="554" y="260" text-anchor="middle" class="t-label">第 4 轮</text>
+</g>
+<line x1="602" y1="255" x2="628" y2="255" stroke="#b91c1c" stroke-width="1.6" stroke-dasharray="5 4" fill="none" marker-end="url(#s31-red)"/>
+<line x1="618" y1="228" x2="618" y2="292" stroke="#b91c1c" stroke-width="2" stroke-dasharray="6 5"/>
+<text x="618" y="308" text-anchor="middle" class="t-micro" fill="#b91c1c">图的终点</text>
+<rect x="632" y="240" width="76" height="30" rx="8" fill="#fee2e2" stroke="#b91c1c" stroke-width="1.4" stroke-dasharray="5 4"/><text x="670" y="259" text-anchor="middle" class="t-label" fill="#b91c1c">答案？</text>
+<text x="386" y="330" text-anchor="middle" class="t-label" fill="#b91c1c" font-weight="600">四轮只能得到部分结果，第六轮的新结果被遗漏</text>
+</svg>
+<figcaption class="fig-caption">这张图预先展开四轮连接。数据 A 在第二轮达到不动点。后两轮不再增加结果。数据 B 需要六轮。固定四轮会遗漏结果。</figcaption>
+</figure>
+
+这里讨论的是固定轮数的展开。对于任意大小的输入，经典关系代数无法表达一般的可达性查询。参见《数据库基础》[第十二章](https://webdam.di.ens.fr/Alice/pdfs/Chapter-12.pdf)。
+
+程序需要重复应用同一套规则。每轮结果决定程序是否继续。
+
+### 1.2 Datalog 用规则表达递归 {#datalog-recursion}
+
+Datalog 可以直接写出这个查询。`reach` 保存已经到达的对象。我们先把起点 P 放进去：
+
+```text
+reach("P").
+reach(y) :- reach(x), holds(x, y).
+```
+
+第一行给出初始事实。第二行是一条递归规则。`:-` 左边表示推导结果。右边表示推导条件。
+
+如果 x 已经可达，而且 x 持有 y，规则就把 y 加入 `reach`。新加入的 y 还能参与同一条规则。**规则定义的关系，又出现在规则的输入中。** 这就是这里的递归。
+
+本节采用经典正 Datalog。规则不包含否定。规则也不生成新的域值。它能够表达可达性。它缺少否定，因此不能直接视为完整一阶查询的扩展。[《数据库基础》第十二章](https://webdam.di.ens.fr/Alice/pdfs/Chapter-12.pdf)说明了这一区别。
+
+SQL 也可以加入递归。同一查询可以写成：
+
+```sql
+WITH RECURSIVE reach(company) AS (
+  SELECT 'P'
+  UNION
+  SELECT h.owned
+  FROM reach r
+  JOIN holds h ON r.company = h.holder
+)
+SELECT company
+FROM reach
+WHERE company <> 'P';
+```
+
+初始项放入 P。递归项继续查询下一层公司。`UNION` 去掉重复行。最后一行从输出中排除起点 P。
+
+PostgreSQL 用工作表保存本轮输入。递归项读取工作表。引擎把新行放入下一轮工作表。工作表为空时，计算结束。参见 [PostgreSQL 递归查询求值](https://www.postgresql.org/docs/18/queries-with.html#QUERIES-WITH-RECURSIVE)。
+
+这两种写法都允许结果再次参与计算。下面还需要明确：递归应该得到哪个结果。
+
+### 1.3 最小不动点定义查询结果 {#least-fixed-point}
+
+令 R 表示已知可达集合。初始集合只有 P。每轮计算分为两步：
+
+```text
+候选公司 = 从持股表中查找 R 的下一层公司
+下一轮集合 = R ∪ 候选公司
+```
+
+把这两步合称为 F。**如果 F(R) = R，R 就是不动点。** 再应用一次规则，集合仍然不变。
+
+只满足这个等式还不够。某些不动点可能包含无关公司。我们需要包含初始事实的最小不动点。程序只加入规则能够推导出的对象。
+
+对于本例，推导过程如下：
+
+| 阶段 | 本轮新发现的公司 | 已知可达集合 |
+|---|---|---|
+| 初始 | — | P |
+| 第 0 轮 | 甲、丙 | P、甲、丙 |
+| 第 1 轮 | 乙、丁 | P、甲、丙、乙、丁 |
+| 第 2 轮 | 戊 | P、甲、丙、乙、丁、戊 |
+| 第 3 轮 | 无 | 集合不变，达到不动点 |
+
+输入有限，因此候选对象有限。规则只增加事实。集合也不保留重复事实。这个过程最终会达到最小不动点。参见《数据库基础》[第十二章 §12.3](https://webdam.di.ens.fr/Alice/pdfs/Chapter-12.pdf)。
+
+这个终止结论依赖上述条件。若 SQL 每轮还输出新的深度值，完整行就可能不再重复。此时不能只靠 `UNION` 保证终止。
+
+### 1.4 反馈循环怎样计算不动点 {#feedback-execution}
+
+每轮重新处理整个 R，会重复查询旧结果。本例只需要继续处理新发现的公司。用 Δ 表示这些公司：
+
+```text
+初始已知集合 = {P}
+初始 Δ = {P}
+
+while Δ 不为空:
+    候选公司 = 从持股表中查找 Δ 的下一层公司
+    候选公司 = 去重(候选公司)
+    下一轮 Δ = 候选公司 − 已知集合
+    已知集合 = 已知集合 ∪ 下一轮 Δ
+    Δ = 下一轮 Δ
+```
+
+下一轮 Δ 为空时，程序停止。每个新发现的公司都会得到一次展开。已经展开的公司不必再次展开。
+
+<figure class="fig-card" id="recursion-feedback-example">
+<svg class="fig-svg" viewBox="0 0 760 420" role="img" aria-label="左：甲丙丁戊组成闭合持股环，戊以红色虚线反向持有甲；右：Δ输入、连接、去重、反馈组成闭合计算环，已知集合为侧向输出">
 <defs>
 <marker id="lp-orange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#9a3412"/></marker>
 <marker id="lp-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#b91c1c"/></marker>
@@ -100,7 +246,7 @@ tags: [timely-dataflow, differential-dataflow, 迭代计算, 递归sql]
 <line x1="665" y1="223" x2="665" y2="306" stroke="#57534e" stroke-width="1.6" fill="none" marker-end="url(#lp-gray)"/>
 <g>
 <rect x="423" y="177" width="84" height="46" rx="12" fill="#f0fdfa" stroke="#0f766e" stroke-width="1.5"/><text x="465" y="205" text-anchor="middle" class="t-label" font-weight="600">Δ 输入</text>
-<rect x="523" y="72" width="84" height="46" rx="12" fill="#f0fdfa" stroke="#0f766e" stroke-width="1.5"/><text x="565" y="100" text-anchor="middle" class="t-label" font-weight="600">JOIN</text>
+<rect x="523" y="72" width="84" height="46" rx="12" fill="#f0fdfa" stroke="#0f766e" stroke-width="1.5"/><text x="565" y="100" text-anchor="middle" class="t-label" font-weight="600">连接</text>
 <rect x="623" y="177" width="84" height="46" rx="12" fill="#f0fdfa" stroke="#0f766e" stroke-width="1.5"/><text x="665" y="205" text-anchor="middle" class="t-label" font-weight="600">去重</text>
 <rect x="523" y="282" width="84" height="46" rx="12" fill="#f0fdfa" stroke="#0f766e" stroke-width="1.5"/><text x="565" y="310" text-anchor="middle" class="t-label" font-weight="600">反馈</text>
 <rect x="623" y="310" width="84" height="40" rx="12" fill="#ffffff" stroke="#a8a29e" stroke-width="1.4"/><text x="665" y="334" text-anchor="middle" class="t-label">已知集合</text>
@@ -109,113 +255,31 @@ tags: [timely-dataflow, differential-dataflow, 迭代计算, 递归sql]
 <text x="640" y="126">候选公司</text>
 <text x="648" y="268">仅本轮新公司</text>
 <text x="498" y="270" text-anchor="end">作为 Δ 返回</text>
-<text x="665" y="370" text-anchor="middle" fill="#57534e">累计输出</text>
 </g>
 <text x="185" y="380" text-anchor="middle" class="t-sub">沿持股箭头查询：甲 → 丙 → 丁 → 戊 → 甲</text>
-<text x="565" y="380" text-anchor="middle" class="t-sub">每轮执行同一个 join，去重后的新公司重新成为输入</text>
+<text x="565" y="380" text-anchor="middle" class="t-sub">反馈边把新公司送回连接算子</text>
 </svg>
-<figcaption class="fig-caption">左：输入数据本身含有环——戊反过来持有甲（红色虚线），沿持股关系查询会回到起点。右：系统用一条反馈边重复执行同一个 join；去重只放行本轮新发现的公司，已知集合作为侧向输出累计结果。</figcaption>
+<figcaption class="fig-caption">左图表示持股关系。右图表示执行结构。连接算子查找下一层公司。去重算子只放行新公司。反馈边把新公司送回连接算子。</figcaption>
 </figure>
 
-考虑上图中的持股关系：自然人 P 持有甲和丙；甲持有乙和丙；乙持有丙；丙持有丁，丁持有戊，而戊又持有甲。若只查询从 P 沿持股关系可达哪些公司（不计算持股比例或实际控制权），就必须把每轮新发现的公司再次作为股东，回到同一张表中检索。
+反馈边把新结果送回连接算子。引擎因此可以复用同一组算子。去重算子只让新公司进入下一轮。输入中的持股环不会让这些公司反复进入循环。
 
-这个过程会逐层进行：
+**算子图可以保持固定。动态计算图逐轮展开执行实例。** 这里沿用第一篇的定义。每一轮都是新的执行实例。有限次迭代可以展开成有限 DAG。
 
-| 轮次 | 本轮用于查询的股东 | 从持股表中找到的公司 | 新发现的公司 |
-|---|---|---|---|
-| 0 | P | 甲、丙 | 甲、丙 |
-| 1 | 甲、丙 | 乙、丙、丁 | 乙、丁 |
-| 2 | 乙、丁 | 丙、戊 | 戊 |
-| 3 | 戊 | 甲 | 甲已经存在，无新增结果，计算结束 |
+输入数据中的环与算子图的反馈边需要区分。即使持股数据没有环，程序也可以用反馈循环查询未知层数的关系。
 
-每一轮执行的操作都相同：把本轮新发现的公司与持股表连接，再从结果中去掉已经见过的公司。写成关系运算就是：
+把循环分到多台机器后，完成判断就需要协调。某台机器可能已经没有新结果。其他机器却可能仍在计算。网络也可能仍在传送消息。
 
-```text
-新结果 = distinct(本轮新发现的公司 ⋈ holds) − 已知公司
-```
+**最小不动点规定查询结果。反馈循环执行推导。进度机制帮助系统确认相关工作已经完成。**
 
-其中，`holds` 是固定的持股关系表。变化的只是每一轮送入连接操作的公司集合。
-
-### 1.1 静态图为什么不够
-
-如果持股链的最大长度事先已知，例如确定最多只有三层，那么可以把三次连接操作直接写成一张静态 DAG。但是实际数据可能只有一层，也可能有十层；查询开始之前，程序通常无法知道需要展开多少轮。
-
-一种办法是预先画出足够多的层数，例如固定执行十轮。这样虽然仍能得到部分场景中的正确结果，却同时带来两个问题：链较短时会产生多余计算，链超过十层时又会遗漏结果。静态展开只是把未知的循环次数替换成了人为设定的上限，并没有真正表达循环。
-
-<figure class="fig-card">
-<svg class="fig-svg" viewBox="0 0 720 360" role="img" aria-label="固定四轮的静态展开图：数据两轮收敛时后两轮空转，数据六轮才收敛时答案落在图外">
-<defs>
-<marker id="s31-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#57534e"/></marker>
-<marker id="s31-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#b91c1c"/></marker>
-</defs>
-<text x="24" y="30" class="t-title">同一张静态图，遇到两种不同的数据</text>
-<g class="t-sub">
-<text x="24" y="80">静态展开（固定 4 轮）</text>
-<text x="24" y="170">数据 A：第 2 轮收敛</text>
-<text x="24" y="260">数据 B：第 6 轮才收敛</text>
-</g>
-<g stroke="#57534e" stroke-width="1.5" fill="none">
-<line x1="266" y1="75" x2="280" y2="75" marker-end="url(#s31-ink)"/><line x1="378" y1="75" x2="392" y2="75" marker-end="url(#s31-ink)"/><line x1="490" y1="75" x2="504" y2="75" marker-end="url(#s31-ink)"/>
-</g>
-<g>
-<rect x="170" y="56" width="96" height="38" rx="10" fill="#ffffff" stroke="#57534e" stroke-width="1.4"/><text x="218" y="80" text-anchor="middle" class="t-label">第 1 轮</text>
-<rect x="282" y="56" width="96" height="38" rx="10" fill="#ffffff" stroke="#57534e" stroke-width="1.4"/><text x="330" y="80" text-anchor="middle" class="t-label">第 2 轮</text>
-<rect x="394" y="56" width="96" height="38" rx="10" fill="#ffffff" stroke="#57534e" stroke-width="1.4"/><text x="442" y="80" text-anchor="middle" class="t-label">第 3 轮</text>
-<rect x="506" y="56" width="96" height="38" rx="10" fill="#ffffff" stroke="#57534e" stroke-width="1.4"/><text x="554" y="80" text-anchor="middle" class="t-label">第 4 轮</text>
-</g>
-<g stroke="#0f766e" stroke-width="1.5" fill="none">
-<line x1="266" y1="165" x2="280" y2="165" marker-end="url(#s31-ink)"/><line x1="378" y1="165" x2="392" y2="165" marker-end="url(#s31-ink)"/><line x1="490" y1="165" x2="504" y2="165" marker-end="url(#s31-ink)"/>
-</g>
-<g>
-<rect x="170" y="146" width="96" height="38" rx="10" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="218" y="170" text-anchor="middle" class="t-label">第 1 轮</text>
-<rect x="282" y="146" width="96" height="38" rx="10" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="330" y="170" text-anchor="middle" class="t-label">第 2 轮 ✓</text>
-<rect x="394" y="146" width="96" height="38" rx="10" fill="#f6f1e7" stroke="#a8a29e" stroke-width="1.4" stroke-dasharray="5 4"/><text x="442" y="170" text-anchor="middle" class="t-sub">空转</text>
-<rect x="506" y="146" width="96" height="38" rx="10" fill="#f6f1e7" stroke="#a8a29e" stroke-width="1.4" stroke-dasharray="5 4"/><text x="554" y="170" text-anchor="middle" class="t-sub">空转</text>
-</g>
-<text x="386" y="212" text-anchor="middle" class="t-label" fill="#9a3412" font-weight="600">太长：后两轮白算 —— 浪费，但结果正确</text>
-<g stroke="#0f766e" stroke-width="1.5" fill="none">
-<line x1="266" y1="255" x2="280" y2="255" marker-end="url(#s31-ink)"/><line x1="378" y1="255" x2="392" y2="255" marker-end="url(#s31-ink)"/><line x1="490" y1="255" x2="504" y2="255" marker-end="url(#s31-ink)"/>
-</g>
-<g>
-<rect x="170" y="236" width="96" height="38" rx="10" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="218" y="260" text-anchor="middle" class="t-label">第 1 轮</text>
-<rect x="282" y="236" width="96" height="38" rx="10" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="330" y="260" text-anchor="middle" class="t-label">第 2 轮</text>
-<rect x="394" y="236" width="96" height="38" rx="10" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="442" y="260" text-anchor="middle" class="t-label">第 3 轮</text>
-<rect x="506" y="236" width="96" height="38" rx="10" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><text x="554" y="260" text-anchor="middle" class="t-label">第 4 轮</text>
-</g>
-<line x1="602" y1="255" x2="628" y2="255" stroke="#b91c1c" stroke-width="1.6" stroke-dasharray="5 4" fill="none" marker-end="url(#s31-red)"/>
-<line x1="618" y1="228" x2="618" y2="292" stroke="#b91c1c" stroke-width="2" stroke-dasharray="6 5"/>
-<text x="618" y="308" text-anchor="middle" class="t-micro" fill="#b91c1c">图的终点</text>
-<rect x="632" y="240" width="76" height="30" rx="8" fill="#fee2e2" stroke="#b91c1c" stroke-width="1.4" stroke-dasharray="5 4"/><text x="670" y="259" text-anchor="middle" class="t-label" fill="#b91c1c">答案？</text>
-<text x="386" y="330" text-anchor="middle" class="t-label" fill="#b91c1c" font-weight="600">太短：答案在第 6 轮，图在第 4 轮就结束了 —— 根本算不出来</text>
-</svg>
-<figcaption class="fig-caption">静态展开用人为的上限替代真实的迭代次数。链短时空转几轮，只是浪费；链长时答案落在图外，结果就是错的。两种失败不对称——真正不可接受的是太短。</figcaption>
-</figure>
-
-更直接的办法是加入一条回边，把本轮的新结果重新送回连接操作。此时，算子结构本身可以保持不变：同一个 join 被重复使用，不必为每一轮复制一套算子。但是图中出现回边以后，仅靠原来的依赖关系已经无法决定执行顺序。系统还必须知道一条记录属于哪一轮，以及未来是否还会有新的记录进入这一轮。
-
-因此，循环需要补充两项机制：
-
-1. **轮次或逻辑时间**：区分同一条回边上不同迭代产生的数据；
-2. **进度判断**：确定某一轮是否已经结束，以及整个循环是否已经收敛。
-
-这两个问题构成了 §2 比较同步迭代与 Timely Dataflow 的基础。以下先固定持股表，等把一次递归讲清，再在 §4 引入持股关系的持续变化。
-
-### 1.2 去重不仅影响性能，也决定能否终止
-
-前面的例子中，丙公司会被发现三次：P 直接持有丙，甲持有丙，乙也持有丙。如果每次发现都不加区分地重新送入下一轮，即使没有环，也会产生重复计算。若持股关系中存在交叉持股，例如甲持有乙、乙又持有甲，问题会更加明显：记录会沿着环不断返回，计算永远不会停止。
-
-因此，每一轮都要区分“已经见过的公司”和“本轮第一次发现的公司”。只有后者才需要进入下一轮。前面公式中的 `distinct` 和集合差并非单纯的性能优化，它们同时给出了集合型递归的终止条件：当一轮计算不再产生新公司时，已知集合达到不动点，循环结束。
-
-这一点也说明了运行时展开的实质。系统并不是随意创建一张结构不断变化的图，而是在重复执行同一段计算结构；真正动态变化的是每轮输入的数据，以及由这些数据决定的迭代次数。
-
-这里的终止性依赖于有限公司集合与集合型可达查询；去重不是所有迭代算法的通用终止判据。业务数据有环和执行图有回边也是两件事：一条无环但长度未知的持股链，同样可以用循环展开。
+下一章先讨论同步轮次，再介绍 Timely。Timely 用逻辑时间区分迭代。它通过进度追踪判断相关时间的工作是否完成。某一轮完成后，下一轮仍可能继续。[Naiad 论文](https://www.microsoft.com/en-us/research/wp-content/uploads/2013/11/naiad_sosp2013.pdf)给出了这套执行机制。
 
 
 ## 2. 表达循环的两条路线 {#scheduling}
 
-上一节的结论是：循环需要两样东西——区分轮次的逻辑时间，和判断进度的机制。这两样东西可以放在两个地方：记在系统里，或者记在数据里。这个选择把系统分成了两类：一类用同步屏障把动态图切成一轮一轮来跑，一类不设屏障、让消息带着时间戳自由流动。这一章先看两种做法各自的实现，把语义与调度代价分开对照；SQL 的对应放在 §5。
+同一个递归查询可以采用不同的调度方式。同步执行在轮末统一检查进度。Timely 让消息携带逻辑时间。不同轮次的工作因此可以重叠。两种方式都需要确认哪些工作已经完成。
 
-### 2.1 同步轮次：把时间记在系统里
+### 2.1 同步轮次：完成一轮，再启动下一轮
 
 最直观的办法是让所有机器对齐"现在"。计算按轮次推进：第 k 轮里，所有节点并行处理第 k−1 轮的输出；全部完成后，一道全局屏障把系统锁齐，第 k+1 轮才能开始。轮次编号是系统的全局状态，数据本身不需要携带时间——所有人都在同一轮，时间是隐式的。
 
@@ -270,9 +334,13 @@ tags: [timely-dataflow, differential-dataflow, 迭代计算, 递归sql]
 
 本节讨论同步迭代模型。Flink 的 DataSet iteration 与 Gelly 是历史实现示例；不能据此推断当前 DataStream 提供同样的循环与终止接口。MPI 也可以编写异步程序，这里仅指按轮同步的使用方式。
 
-### 2.2 逻辑时间：把时间记在数据里
+### 2.2 Timely：用逻辑时间区分迭代
 
-Timely Dataflow 做了相反的选择：不设全局屏障，算子在被调度时消费已到达的数据，按自身逻辑计算并输出。这样解决了“数据怎样持续向前流动”，却没有解决“外部什么时候可以拿到一个 epoch 的完整答案”。运行时不会打开 join、distinct 或循环算子的业务状态，替它们理解“现在是否已经算完”；它只认识算子按照进度协议公开出来的状态。即使输入端已经结束 epoch `e`，由 `e` 产生的工作仍可能缓存在算子中、飞行在网络上，或者继续沿循环回边传播。下面先看循环怎样把时间写进消息；至于怎样从这些时间的进度状态确认答案已经完成，是第 3 章的主题。
+Timely Dataflow 允许不同轮次重叠执行。算子被调度时，处理已经到达的数据。消息携带逻辑时间，用来区分输入阶段和迭代轮次。
+
+运行时追踪算子公开的进度信息。它不会检查业务状态来判断不动点。输入阶段 `e` 结束后，派生工作仍可能留在算子中。消息也可能仍在网络中传输。反馈边还可能继续产生下一轮工作。
+
+本节先解释逻辑时间。第三章再解释系统怎样确认结果完整。
 
 #### 2.2.1 为什么纯异步的系统也要逻辑时间
 
@@ -527,94 +595,76 @@ reach = iterate(start, known =>
 | 短板 | 最慢分区与轮末协调影响下一轮 | 进度协议开销；capability 与时间语义的实现要求 |
 
 <div class="callout callout--insight">
-<p><strong>归因</strong>：这一节回答的问题是"循环里的时间记在哪里"。<strong>时间要么记在系统里，要么记在数据里。</strong>同步轮次用全局等待换来语义的简单；逻辑时间用更精细的簿记换来轮次的重叠。两条路线表达的是同一个循环，差别在于谁来记录"现在"。</p>
+<p>同步执行在轮末集中确认进度。Timely 持续追踪带逻辑时间的工作。两种方式都可以执行同一个递归查询。它们采用不同的调度和协调机制。</p>
 </div>
 
 ## 3. 在纯异步循环中找答案 {#progress}
 
-§2 把时间记进了数据：每条消息自带坐标，循环在纯异步的数据流中得以表达，不同轮次自由重叠。但表达只是第一份工作——消息自由流动之后，“这个时间的答案已经完整”不再有屏障替你宣布，这句承诺要系统自己拿出来。这一章解决第二件事：在纯异步的循环里，怎样从这些时间戳的进度状态中找出答案。
+第二章说明了 Timely 怎样执行反馈循环。逻辑时间区分各轮工作。运行时仍需确认这些工作是否完成。
+
+第一章用最小不动点定义答案。这里继续讨论完成判断。算子负责推导结果。进度协议追踪尚未完成的工作。只有相关工作全部结束，调用方才能确认这个输入版本的结果完整。
+
+{% include capability-frontier-demo.html %}
 
 ### 3.1 输入结束不等于答案完成
 
-假设 source 已经宣布：epoch <code>e</code> 的输入全部发送完毕。这句话只关闭了**外部输入**，并没有关闭由它派生出来的内部工作。某条 <code>e</code> 的消息可能刚进入 join；join 可能把结果发给下一算子；下一算子又可能把结果送回循环。每个算子都在正常地增量计算，但没有任何一个瞬间能让运行时仅凭“当前队列为空”断言整个 epoch 已经结束。
+source 发完时间 `e` 的输入，内部计算仍可能继续。消息可能还在路上。算子也可能继续向循环发送数据。
 
-而用户真正需要的是另一条承诺：**这个 epoch 的所有影响已经传播完，当前看到的答案以后不会再改变。** Timely 不靠理解算子内部的业务状态得到这条承诺，而是让所有消息和未来发送权都携带逻辑时间，再从时间的进度状态推导答案是否完整。准确地说，**答案内容由算子增量算出；时间进度不负责计算答案，只负责证明当前答案已经完整。**
+**capability 跟踪发送权限，frontier 标出完整性边界。** 算子计算答案。运行时根据进度判断数据是否收齐。
 
-先用单个整数时间建立直觉。若某个输入端口的 frontier 已推进到 <code>{f}</code>，就表示这个端口以后只可能收到时间不早于 <code>f</code> 的消息，因此所有 <code>t &lt; f</code> 的输入都已关闭。算子在这些时间上的结果可能早已作为增量向下游流动；frontier 到达 <code>f</code> 并不是此刻才产生结果，而是把“当前结果”升级成一条完成保证：该端口时间 <code>t</code> 的输入已经完整。算子还要处理完本地工作；相关状态是否继续保留，取决于后续计算是否需要它。
+观察输入端口的 frontier，可以确认输入完整。观察结果输出端口的 frontier，可以确认该时间的输出完整。输入收齐后，算子仍可能需要完成本地计算。
 
-只有一个整数时，“早于 <code>f</code>”很好判断。进入二重循环后，时间变成多个坐标，可能出现互不可比的进展方向。为了把同一条完成保证推广到这种情况，运行时才需要比较时间。它要回答的不是“哪条日志先发生”，而是一个与答案完整性直接相关的问题。这个问题先记下，到 3.4 再正式回答。
+### 3.2 capability：发送权限只能向前推进
 
-### 3.2 capability：谁还能发
+capability 简称 **cap**。算子持有 `cap@5`，就保留了发送时间 5 数据的权限。它也能派生更晚时间的 cap。
 
-先只看两个算子：A 的输出连到 B 的输入。
+算子把 `cap@5` 推进到 `cap@6`，就放弃这份时间 5 的发送权限。**这个推进不能回退。** 算子不再需要发送时，就释放 cap。
 
-<pre><code>算子 A  ────── msg@5 ──────►  算子 B
-  输出端                         输入端</code></pre>
+一个 cap 的推进，不代表全部发送都已结束。其他 cap 可能仍停在时间 5。已经发送的时间 5 消息，也可能尚未被消费。
 
-A 收到时间 5 的数据后，不一定马上输出。它可能要等异步请求、等另一个输入，或者把结果留到下一次调度再发。此时网络中可以一条消息都没有，但 A 仍然可能在将来发送时间 5 的数据。为了把这件事告诉运行时，A 必须保留一张“我还可以发送时间 5”的凭证，这就是 <code>cap@5</code>。
+<details markdown="1">
+<summary>实现细节：推进、派生与释放</summary>
 
-所以 **capability 在发送方手里使用**：
-
-- A 以后还要发送时间 5 的数据，就继续持有 <code>cap@5</code>；
-- A 已经处理完时间 5，以后只会发送时间 6 及其后的数据，就把 capability 的时间推进到 <code>cap@6</code>；
-- A 再也不需要发送数据，就释放 capability。
-
-Timely 把第二个操作命名为 <code>downgrade</code>。这里“推进”的是时间，“降级”的是发送权限：<code>cap@5</code> 还能保留发送时间 5 的可能，<code>cap@6</code> 已经放弃了这种权利，所以数字虽然变大，能力反而更弱。
-
-B 关心的是另一件事：**时间 5 的输入是不是已经全部到齐？** B 不应该逐个检查所有上游算子持有什么 capability，也不应该只看自己的队列是否暂时为空。Timely 把所有上游 capability 和仍在路上的消息汇总成 B 输入端口的 frontier，B 只需要观察这条收件进度。
-
-所以 **frontier 在接收方用来判断输入进度**。例如 B 的 frontier 从 <code>{5}</code> 推进到 <code>{6}</code>，表示时间 5 的数据已经全部收完，不会再来。B 此时可以结束等待时间 5 的输入，再完成本地处理和输出。旧状态能否清理，还取决于未来计算是否复用它。
-
-两者不是二选一，也不是同一份状态的两个名字：
-
-| 角色 | 它回答的问题 | 谁来操作 |
+| 操作 | 作用 | 原来的 cap 是否保留 |
 | --- | --- | --- |
-| capability | “我以后还能发送哪个时间的数据？” | 输出数据的算子持有、把时间推进（<code>downgrade</code>）或释放 |
-| frontier | “这个输入端口已经收完哪些时间的数据？” | 运行时计算，接收数据的算子读取 |
+| `cap.clone()` | 复制同一时间的发送权限 | 保留 |
+| `cap.delayed(&t)` | 派生时间 `t` 的发送权限 | 保留 |
+| `cap.downgrade(&t)` | 将当前 cap 推进到时间 `t` | 替换当前 cap；其他副本不变 |
+| 释放 cap | 放弃这份发送权限 | 不保留 |
 
-许多简单的 <code>map</code>、<code>filter</code> 收到数据就立即输出，不需要把 capability 留到以后，也不需要主动查看 frontier。需要延迟输出的算子才要保存 capability；需要等一个时间的输入全部到齐，例如窗口、聚合、状态回收或循环不动点判断，才要观察 frontier。
+派生和推进都要求原时间 `≤ t`。cap 还必须适用于对应的输出端口。
 
-同一个有状态算子经常两者都用。以时间 5 的窗口聚合为例：
+</details>
 
-1. 窗口还在收数据时，算子保存 <code>cap@5</code>，给自己保留稍后发送窗口结果的权利；
-2. 算子观察输入 frontier；当它越过 5，说明窗口 5 的输入已经全部收完；
-3. 算子用 <code>cap@5</code> 发送最终聚合结果，然后释放它，或者把它的时间推进到更晚。
+### 3.3 frontier：数据完整性的边界
 
-这里，frontier 决定“什么时候可以结束等待”，capability 决定“结束等待后还能不能把结果发在时间 5”。
+**frontier 标出某个端口的数据完整性边界。** 运行时根据 cap 和未消费消息维护它。运行时还会沿数据流路径换算时间。
 
-上面只出现了 <code>downgrade</code>。它还有一个姊妹操作 <code>delayed</code>，差别在旧证的去向：<code>downgrade(&t)</code> 是**换发销底**——旧时间的那张凭证作废，手里只剩更晚时间的一张；<code>delayed(&t)</code> 是**复印留底**——旧时间的证继续保留，额外多复印一张更晚时间的。还需要在旧时间发数据、又想为新时间做准备时，用 <code>delayed</code>；确定不再发旧时间的数据了，才用 <code>downgrade</code>。
+先看 `A → B`。假设只有这条通路，传输不改变时间。下面列出进度汇总后的状态。
 
-为什么要把这两个操作分得这么清？因为运行时判断“时间 t 完没完”，靠的是数一数外面还有几张 t 的证；证的来源必须管死，这个数才可信。常见的能力取得与派生方式如下（复制和推进都必须遵守输出端口及时间约束）：
-
-| 合法来源 | 是什么 | 旧的还在吗 |
+| 状态 | B 的输入 frontier | 时间 5 是否收齐 |
 | --- | --- | --- |
-| <code>input.capability()</code> | 建图时系统发的第一张证（最小时间），一切的起点 | — |
-| <code>cap.clone()</code> | 复制同一时间的发送权，新增一份计数 | 在 |
-| <code>cap.delayed(&amp;t)</code> | 从已有的证复印一张到更晚时间 | 在（留底） |
-| <code>cap.downgrade(&amp;t)</code> | 从已有的证换发一张到更晚时间 | 不在（销底） |
-| 算子内 <code>retain()</code> | 把刚收到的消息自带的证，转成自己输出口的证 | 在 |
+| A 持有 `cap@5` | `{5}` | 未确定 |
+| A 推进到 `cap@6`，但 `msg@5` 尚未消费 | `{5}` | 未确定 |
+| B 消费最后一条 `msg@5` | `{6}` | 已收齐 |
+| A 释放最后的 cap，且没有剩余消息 | `∅` | 这条输入全部结束 |
 
-规则只有一条：**任何证都能追根到系统发的第一张，且只能按合法的时间摘要派生；在同一时间类型中不能向过去推进。** 没有凭空造证，也没有往过去发证——所以“frontier 越过 t”才等于“t 真的完了”。
+**发送权限推进后，旧消息仍可能阻止 frontier 推进。**
 
-### 3.3 frontier：下游怎么知道收完了
+整数时间下，frontier 为 `{6}`，就表示小于 6 的时间已经收齐。时间 6 及以后仍未确定。边界上的时间也未确定。
 
-**用一条消息看清两者怎样接上。**
+B 可以保留输出端口的 `cap@5`。输入 frontier 推进到 `{6}` 后，B 完成时间 5 的汇总。B 再用这个 cap 发送结果，随后释放它。
 
-1. A 持有 <code>cap@5</code>。即使还没有消息，A 将来仍可能发送时间 5，因此 B 不能说时间 5 已经收完。
-2. A 发送一条 <code>msg@5</code>，随后释放 <code>cap@5</code>。B 的 frontier 仍不能推进，因为这条消息还在网络里或 B 的输入队列中。
-3. B 消费了最后一条 <code>msg@5</code>，同时也没有其他算子保留能产生时间 5 的 capability。到这时，时间 5 才真正收完，B 的 frontier 才能越过 5。
+多维时间可能出现互不可比的时间点。frontier 会同时保留这些极小点。这组点叫 **antichain（反链）**。§3.4.4 用二维图说明。
 
-这条因果关系可以记成一句话：
+<details markdown="1">
+<summary>实现细节：运行时怎样维护 frontier</summary>
 
-> **上游用 capability 说明“我还可能发”；下游用 frontier 判断“我已经收完”。**
-
-这条 frontier 不是谁广播给 B 的，而是从上游还没放掉的 capability 和还在路上的消息里**数**出来的最小时间：只要有一张 t 的证没放、一条 t 的消息没消费完，frontier 就越不过 t。下面看这本账具体怎么记。
-
-frontier 本身不会作为一条控制消息从 A 复制给 B。运行时记录的是各个位置、各个时间还有多少份“未完成证据”：持有 capability 算一份，尚未消费的消息也算一份。创建或复制 capability、发送消息会增加相应计数，释放 capability、消费消息会减少相应计数；降级 capability 则是旧时间减一、新时间加一。
+运行时为各个位置、各个时间记录尚未完成的工作：持有 capability 算一份，尚未消费的消息也算一份。创建或复制 capability、发送消息会增加相应计数，释放 capability、消费消息会减少相应计数；降级 capability 则是旧时间减一、新时间加一。
 
 这里没有一个中央控制系统订阅所有算子的数据。算子和数据通道旁的运行时代码会自动记下 capability、消息产生和消息消费带来的计数增减；算子业务代码只需正确地保留、推进或释放 capability，不需要另外发送“我完成了”的控制消息。
 
-每个 worker 先把本地计数变化攒成一批，再由 <code>Progcaster</code> 通过独立的进度通道广播给同一 scope 的其他 worker。广播的不是业务数据，也不是整个 frontier，而是 <code>(位置, 时间, 计数增减)</code>。每个 worker 收到各方变化后，都在本地运行 reachability tracker：先找出各位置仍有正计数的最早 pointstamp，再沿数据流路径推导它们对目标端口意味着哪些时间下界。普通边不改变时间；feedback 按其摘要推进时间。<code>enter</code> 与 <code>leave</code> 是 scope 边界，跨越它们的不是路径摘要而是 <code>to_inner</code> / <code>to_outer</code> 翻译，详见 3.4.2。目标端口用 <code>MutableAntichain</code> 只保留这些下界中逐坐标最小、互相不可比较的点，这才是该端口的 frontier。
+每个 worker 先把本地计数变化攒成一批，再由 <code>Progcaster</code> 通过独立的进度通道广播给同一 scope 的其他 worker。广播的不是业务数据，也不是整个 frontier，而是 <code>(位置, 时间, 计数增减)</code>。每个 worker 收到各方变化后，都在本地运行 reachability tracker：先找出各位置仍有正计数的最早 pointstamp，再沿数据流路径推导它们对目标端口意味着哪些时间下界。本例的普通边不改变时间；feedback 按其摘要推进时间。<code>enter</code> 与 <code>leave</code> 是 scope 边界，跨越它们的不是路径摘要而是 <code>to_inner</code> / <code>to_outer</code> 翻译，详见 3.4.2。目标端口用 <code>MutableAntichain</code> 只保留这些下界中逐坐标最小、互相不可比较的点，这才是该端口的 frontier。
 
 算子可以声明自己是否关心某个输入的 frontier 变化：<code>Never</code>、<code>IfCapability</code> 或 <code>Always</code>。这更接近“订阅”，但它只决定 frontier 改变时要不要唤醒该算子；即使算子选择 <code>Never</code>，运行时仍然会维护这个端口的 frontier。
 
@@ -687,40 +737,24 @@ frontier 本身不会作为一条控制消息从 A 复制给 B。运行时记录
 <figcaption class="fig-caption">数据边负责传递业务记录；进度通道在 worker 之间广播“哪个位置、哪个时间增加或减少了几份未完成证据”。没有中央控制器订阅所有数据，每个 worker 都根据收到的计数变化更新自己的 reachability tracker，再为各输入端口算出 frontier。对应到 Timely 代码，这条链路是 <code>SharedProgress → Progcaster → reachability tracker → MutableAntichain</code>。</figcaption>
 </figure>
 
+</details>
+
 ### 3.4 答案什么时候能拿：一个判据，两种端口
 
-3.1 记下的问题，落到一个具体算子身上只有一句：
-
-> **我手里这个值，是最终答案吗？以后还会不会改？**
-
-先分清两件事，这一节的全部机制都挂在它们的区别上。第一件是**算出当前值**：数据按批到达，算子按时间分格记账，来一批加一批，当前值一直都在手里，增量也一直在发给下游——这件事算子自己就会做，不需要任何协议。第二件是**确认最终值**：某个时间格以后还会不会再进数据——这件事算子自己做不到，它看不见上游有几条分支、谁还攥着发送权、哪条消息还在路上。回答第二件事，靠运行时维护的 frontier。
-
-这一节的核心只有一条判据（3.4.1），然后把它分别用在两种端口上：循环入口这种**单输入端口**（3.4.2），和 join 这种**双输入端口**（3.4.3）。最后讲清 frontier 为什么会长成 antichain（3.4.4），以及算子拿到它之后具体怎么做（3.4.5）。
+算子持续计算当前结果。frontier 帮助算子确认输入是否收齐。单输入算子检查一个输入端口。多输入算子分别检查相关输入端口。
 
 #### 3.4.1 判据：哪些时间还不能确认完整
 
-本节用“有答案”简称“该时间的输入已完整，算子完成本地工作后可以定稿”。frontier 证明的是消息完整性，不检查业务逻辑是否正确，也不会自动完成挂起的本地计算。观察最终输出时，应读取输出流自己的 frontier。
+设目标时间为 `t`，frontier 中的时间点为 `f`。
 
-运行时给每个输入端口维护一条 frontier。它装着一组两两互不可比的时间——数学上叫 **antichain（反链）**——意思是：还可能有消息以这些时间、或比其中某个点更晚的时间到达这个端口。算子不用自己算，运行时算好随调度递过来。
+<pre><code>存在 f ≤ t：时间 t 仍未确定。
+不存在 f ≤ t：时间 t 的数据已经收齐。</code></pre>
 
-判据只有一条，注意方向和量词：
+只要一个 `f` 满足条件，时间 `t` 就仍未确定。**边界点满足 `f ≤ f`，所以边界上的时间也未确定。**
 
-<pre><code>存在 f ∈ frontier，f ≤ t（t 站在某个 antichain 点的上方）
-    → t 压制某个 frontier 点，还可能有消息影响 t，最终答案拿不到。
+例如，frontier 为 `{5}`。时间 4 已收齐，时间 5 及以后仍未确定。
 
-不存在这样的 f（t 不在任何 antichain 点的上方）
-    → t 不压制任何 frontier 点，输入已经收完，最终答案可以获取。</code></pre>
-
-量词是**任一，不是所有**。这里“压制”的方向是：<code>t 压制 f ⟺ f ≤ t</code>，也就是 t 站在 f 的上方或与 f 重合。每个 frontier 点上方都有一整片由它管辖的区域（它的上集：所有满足 <code>f ≤ t</code> 的时间，也就是所有压制它的 t），这些区域可以互相交叠；目标时间 <code>t</code> 只要落在**任一**片区域里（即压制某个 frontier 点），就没有答案。交叠不改变结论——同时站在两个点的上方，和站在一个点的上方，都是没有答案。
-
-**方向最容易反，单独说一遍。** frontier 里的点，是“以后还可能来什么”的起点。所以：
-
-- **f ≤ t 意味着 t 还可能有消息来**——连 f 自己都还可能来——所以 t 没有最终答案；
-- **没有任何 f ≤ t，t 才真的收完了**——所以答案可以获取。
-
-用单数字的例子说明：frontier = {5}，表示以后来的消息时间都 ≥ 5。于是时间 4 有答案——5 不 ≤ 4，4 不会再收消息；时间 5 没有答案——5 ≤ 5，5 本身还可能来。**谁压制 frontier（站在某个点的上方，即存在 f ≤ t），谁就没有答案；谁不压制任何 frontier 点，谁就有答案。** 多点时同理：<code>frontier = {(3,5), (4,1)}</code>（详见 3.4.4 的多维例子），<code>(4,5)</code> 同时压制两个 frontier 点（站在它们上方）、没有答案，<code>(4,0)</code> 不压制任何点、有答案——判据只看 t 压不压制任一 frontier 点（有没有 f ≤ t），不看 t 站在几个点的上方。
-
-这一节的其余部分，全部是这条判据在两种端口上的应用：单输入端口直接套，多输入端口对每个端口各套一次再取“且”。见下面两节。
+下面的循环和 join 例子都用这条判据。“有答案”表示输入已收齐，算子完成本地计算后可以确定结果。调用方确认输出完整时，应观察结果输出端口的 frontier。
 
 #### 3.4.2 例一：循环——用路径找后续时间戳的结构
 
@@ -1120,7 +1154,7 @@ move |(input1, frontier1), (input2, frontier2), output| { ... }
 ⟺ 左侧 frontier 没有 f ≤ t
    且 右侧 frontier 没有 f ≤ t</code></pre>
 
-任何一侧还挡着，都拿不到。Timely 的 <code>FrontierNotificator</code> 就是这么查的：<code>frontiers.iter().all(|f| !f.less_equal(time))</code>——两个 frontier 都要没有点被 t 压制（即不存在 f ≤ t）。
+任何一侧还挡着，都拿不到。Timely 的 <code>FrontierNotificator</code> 就是这么查的：<code>frontiers.iter().all(|f| !f.less_equal(time))</code>——两个 frontier 中都不能存在 f ≤ t。
 
 **例子：两侧时间不可比时，各收各的。** 假设：
 
@@ -1146,13 +1180,97 @@ move |(input1, frontier1), (input2, frontier2), output| { ... }
 
 #### 3.4.4 frontier 为什么不是单点
 
-frontier 不是被设计出来的形状，是算出来的结果。一个端口上的 frontier 最后有几个点，由三步决定，三步各管一段，不能混：
+整数时间能排成一条线。因此，非空 frontier 只需要一个最小时间。
 
-- **可达性产生候选**：每份还活着的证据，沿它能走的路径，给目标端口贡献候选下界；
-- **<code>Product::less_equal</code> 比较候选**：只在同一个端口上，对两个候选时间逐坐标比较；
-- **antichain 压缩集合**：把该端口的候选集合压成最小、两两不可比的一组点。
+循环可以使用 `(输入批次, 迭代轮次)`。比较两个时间时，两个坐标都必须满足 `≤`。
 
-可达性管“有哪些候选”，偏序管“两个候选谁盖住谁”，antichain 管“一个端口最终留下哪几个”。下面按这个顺序展开。
+例如，`(3,5)` 的批次较小，轮次较大。`(4,1)` 的批次较大，轮次较小。两者互不可比。
+
+**antichain 是一组两两互不可比的时间点。frontier 用这些极小点表示完整性边界。**
+
+<figure class="fig-card" id="frontier-completeness-map">
+<svg class="fig-svg" viewBox="0 0 500 438" role="img" aria-labelledby="frontier-map-title frontier-map-desc">
+<title id="frontier-map-title">frontier 的两个边界点与完整性区域</title>
+<desc id="frontier-map-desc">横轴为输入批次，纵轴为迭代轮次。frontier 包含 (3,5) 与 (4,1)。任一紫点及其右上方的时间仍未确定，其余绿色区域已经收齐。边界点也未确定。</desc>
+<text x="26" y="30" class="t-title">frontier = {(3,5), (4,1)}</text>
+<text x="26" y="57" class="t-sub">迭代轮次 ↑</text>
+<rect x="62" y="70" width="390" height="260" fill="#e5f4ee"/>
+<path d="M278 70 H452 V290 H350 V130 H278 Z" fill="#e9dff6"/>
+<circle cx="62" cy="330" r="3" fill="#61a593"/>
+<circle cx="62" cy="290" r="3" fill="#61a593"/>
+<circle cx="62" cy="250" r="3" fill="#61a593"/>
+<circle cx="62" cy="210" r="3" fill="#61a593"/>
+<circle cx="62" cy="170" r="3" fill="#61a593"/>
+<circle cx="62" cy="130" r="3" fill="#61a593"/>
+<circle cx="62" cy="90" r="3" fill="#61a593"/>
+<circle cx="134" cy="330" r="3" fill="#61a593"/>
+<circle cx="134" cy="290" r="3" fill="#61a593"/>
+<circle cx="134" cy="250" r="3" fill="#61a593"/>
+<circle cx="134" cy="210" r="3" fill="#61a593"/>
+<circle cx="134" cy="170" r="3" fill="#61a593"/>
+<circle cx="134" cy="130" r="3" fill="#61a593"/>
+<circle cx="134" cy="90" r="3" fill="#61a593"/>
+<circle cx="206" cy="330" r="3" fill="#61a593"/>
+<circle cx="206" cy="290" r="3" fill="#61a593"/>
+<circle cx="206" cy="250" r="3" fill="#61a593"/>
+<circle cx="206" cy="210" r="3" fill="#61a593"/>
+<circle cx="206" cy="170" r="3" fill="#61a593"/>
+<circle cx="206" cy="130" r="3" fill="#61a593"/>
+<circle cx="206" cy="90" r="3" fill="#61a593"/>
+<circle cx="278" cy="330" r="3" fill="#61a593"/>
+<circle cx="278" cy="290" r="3" fill="#61a593"/>
+<circle cx="278" cy="250" r="3" fill="#61a593"/>
+<circle cx="278" cy="210" r="3" fill="#61a593"/>
+<circle cx="278" cy="170" r="3" fill="#61a593"/>
+<circle cx="278" cy="90" r="3" fill="#ad91d0"/>
+<circle cx="350" cy="330" r="3" fill="#61a593"/>
+<circle cx="350" cy="250" r="3" fill="#ad91d0"/>
+<circle cx="350" cy="210" r="3" fill="#ad91d0"/>
+<circle cx="350" cy="170" r="3" fill="#ad91d0"/>
+<circle cx="350" cy="130" r="3" fill="#ad91d0"/>
+<circle cx="350" cy="90" r="3" fill="#ad91d0"/>
+<circle cx="422" cy="330" r="3" fill="#61a593"/>
+<circle cx="422" cy="290" r="3" fill="#ad91d0"/>
+<circle cx="422" cy="250" r="3" fill="#ad91d0"/>
+<circle cx="422" cy="210" r="3" fill="#ad91d0"/>
+<circle cx="422" cy="170" r="3" fill="#ad91d0"/>
+<circle cx="422" cy="130" r="3" fill="#ad91d0"/>
+<circle cx="422" cy="90" r="3" fill="#ad91d0"/>
+<path d="M278 70 V130 H350 V290 H452" fill="none" stroke="#6d28d9" stroke-width="2" stroke-dasharray="5 4"/>
+<path d="M62 70 V330 H452" fill="none" stroke="#57534e" stroke-width="1.5"/>
+<g class="t-micro" fill="#57534e">
+<text x="62" y="350" text-anchor="middle">0</text><text x="134" y="350" text-anchor="middle">1</text><text x="206" y="350" text-anchor="middle">2</text><text x="278" y="350" text-anchor="middle">3</text><text x="350" y="350" text-anchor="middle">4</text><text x="422" y="350" text-anchor="middle">5</text>
+<text x="49" y="334" text-anchor="end">0</text><text x="49" y="294" text-anchor="end">1</text><text x="49" y="254" text-anchor="end">2</text><text x="49" y="214" text-anchor="end">3</text><text x="49" y="174" text-anchor="end">4</text><text x="49" y="134" text-anchor="end">5</text><text x="49" y="94" text-anchor="end">6</text>
+</g>
+<text x="358" y="373" class="t-sub">输入批次 →</text>
+<circle cx="278" cy="130" r="7" fill="#6d28d9"/>
+<circle cx="350" cy="290" r="7" fill="#6d28d9"/>
+<text x="285" y="116" class="t-label" fill="#6d28d9">(3,5)</text>
+<text x="360" y="278" class="t-label" fill="#6d28d9">(4,1)</text>
+<text x="119" y="196" class="t-title" fill="#0f766e">已收齐</text>
+<text x="361" y="196" class="t-label" fill="#6d28d9">未确定</text>
+<circle cx="278" cy="170" r="5" fill="#0f766e"/>
+<text x="222" y="164" class="t-micro" fill="#0f766e">(3,4)</text>
+<circle cx="350" cy="330" r="5" fill="#0f766e"/>
+<text x="293" y="319" class="t-micro" fill="#0f766e">(4,0)</text>
+<text x="26" y="407" class="t-sub">紫点组成 antichain。紫点本身也未确定。</text>
+</svg>
+<figcaption class="fig-caption">从任一紫点向右、向上，进入未确定区域。绿色区域的数据已收齐。本图展示一个端口的 frontier。</figcaption>
+</figure>
+
+| 目标时间 | 是否存在 frontier 点 `f ≤ t` | 完整性 |
+| --- | --- | --- |
+| `(3,4)` | 不存在 | 已收齐 |
+| `(4,0)` | 不存在 | 已收齐 |
+| `(3,5)` | 存在 `(3,5)` | 未确定 |
+| `(4,2)` | 存在 `(4,1)` | 未确定 |
+
+图中的“下方完整、上方未定”，要按坐标比较理解。**任一边界点及其右上方都未确定。其余区域已经收齐。**
+
+如果还有候选时间 `(4,6)`，frontier 不必再列出它。因为 `(3,5) ≤ (4,6)`，现有边界已经包含这片未确定区域。运行时仍会跟踪 `(4,6)` 对应的工作。
+
+<details markdown="1">
+<summary>实现细节：路径、作用域与 antichain 的计算</summary>
 
 **第一步，候选从哪来：可达性。** 还活着的证据有两种：某处保留的 capability，通道里还没被消费的消息。每份证据是一个 pointstamp，即（时间，位置）对。固定一个输入端口 P，一份证据能给 P 贡献的候选是：沿每条从它当前位置通往 P 的路径，用它自己的时间按路径摘要换算到 P 上的结果。路径不换算时间时，候选就是证据自己的时间；经过 feedback 边时，候选按摘要累加。
 
@@ -1209,7 +1327,7 @@ frontier 不是被设计出来的形状，是算出来的结果。一个端口�
 
 注意比较的双方必须先落在同一个端口上。工作在 <code>(1,2,4)</code> 的裸时间与 <code>(1,3,1)</code> 不可比，这不能说明 <code>(1,3,1)</code> 已经关闭；真正参与比较的是它投影到 P 的候选 <code>(1,3,0)</code>，而 <code>(1,3,0) ≤ (1,3,1)</code>，所以 <code>(1,3,1)</code> 还关不掉。跨位置的裸时间不直接参与比较：先投影成同一端口的候选，再谈大小。
 
-**第三步，留下哪几个：antichain 为一个端口压缩候选。** 压缩规则只有一条：候选 c 若已被集合中某个点盖住（存在 x ≤ c），c 就是多余的，丢弃；否则把集合里被 c 盖住的旧点剔掉。<code>Antichain::insert</code> 就是这两步，两次判断都调 <code>less_equal</code>。压完剩下的是一组**最小、两两不可比**的点，称为 antichain；一个输入端口的 frontier 就是这样一个 antichain。
+**第三步，留下哪几个：antichain 为一个端口压缩候选。** 压缩规则只有一条：候选 c 若已被集合中某个点盖住（存在 x ≤ c），c 就是多余的，丢弃；否则把集合里被 c 盖住的旧点剔掉。<code>Antichain::insert</code> 就是这两步，两次判断都调 <code>less_equal</code>。压完剩下的是一组**极小、两两不可比**的点，称为 antichain；一个输入端口的 frontier 就是这样一个 antichain。
 
 套回端口 P 的两个例子：
 
@@ -1273,60 +1391,25 @@ frontier 不是被设计出来的形状，是算出来的结果。一个端口�
 
 固定 <code>e = 1</code> 的网格里，边界没有任何 <code>(1,1,x)</code> 形式的点：外层第 1 轮已经全部关闭，frontier 只列还没关闭的链头。
 
-**frontier 的判据以端口为单位。** 对端口 P 上的目标时间 t，判据只有一句：存在 f ∈ frontier(P) 使 f ≤ t，t 就还可能再来数据，不能定稿；不存在这样的 f，t 就可以定稿。代码对应 <code>Antichain::less_equal(&t)</code>，实现是 <code>elements.iter().any(|x| x.less_equal(&t))</code>：集合里任意一个点 ≤ t 即成立。这个查询的主语是**一个端口**：每个输入端口各有一条自己的 antichain，各查各的。join 的两个输入端口是两条独立的 antichain，分别查询再取“且”（3.4.3），运行时不会把两侧合并成一条；唯一发生合并的情形是多个来源汇入**同一个**端口，此时它们的候选并入该端口这同一条 antichain。
+**frontier 的判据以端口为单位。** 对端口 P 上的目标时间 t，判据只有一句：存在 f ∈ frontier(P) 使 f ≤ t，t 就还可能再来数据，不能定稿；不存在这样的 f，该端口在 t 上的数据就已收齐。代码对应 <code>Antichain::less_equal(&t)</code>，实现是 <code>elements.iter().any(|x| x.less_equal(&t))</code>：集合里任意一个点 ≤ t 即成立。这个查询的主语是**一个端口**：每个输入端口各有一条自己的 antichain，各查各的。join 的两个输入端口是两条独立的 antichain，分别查询再取“且”（3.4.3），运行时不会把两侧合并成一条；唯一发生合并的情形是多个来源汇入**同一个**端口，此时它们的候选并入该端口这同一条 antichain。
 
 **为什么有时一个点、有时多个点：链的读法。** 固定 <code>(e,o)</code>，<code>(e,o,0), (e,o,1), …</code> 是一条链，内层回边只在链内加 i，链内全序；外层回边跳到 <code>(e,o+1,0)</code>，是另一条链的开头，两条链的当前候选可能互不可比，也可能被更早候选覆盖。于是：同一端口上只有一条链还活着时，偏序把候选压到链头，frontier 是一个点（3.3 的 <code>{5} → {6}</code> 就是单链情形）；多条链同时活着时，仍要逐坐标比较；只有互不覆盖的最小候选才一起保留，形成多点 antichain。上面例子里 <code>(1,2,1)</code> 与 <code>(1,3,0)</code> 正是 o=2、o=3 两条链的链头。
 
-**两批输入可以同时计算。** 前面的例子只看了一批输入；系统可以在第 3 批尚未完成时接收第 4 批。这里先看内层端口的完成判据，外层版本怎样确认完整将在 §4 展开。设循环入口端口 P 上，第 3 批的工作停在迭代 5，第 4 批的工作已经跑到迭代 1：
+</details>
 
-<pre><code>frontier(P) = {(3, 5), (4, 1)}</code></pre>
+#### 3.4.5 回到算子：三步确认完整
 
-第 3 批还没算完，第 4 批已经开始，这两个工作同时存在，不能简单排成先后。两点不可比：批次编号 3 &lt; 4，但迭代轮次 5 &gt; 1，各挡自己那条链。套查询：<code>t = (3,4)</code> 时 <code>(3,5) ≰ (3,4)</code>（i 坐标），<code>(4,1) ≰ (3,4)</code>（批次编号），没有 f ≤ t，<code>(3,4)</code> 可以确定；<code>t = (3,7)</code> 时 <code>(3,5) ≤ (3,7)</code>，还不能确定。第 3 批的第 4 轮可以先确定，不必等第 4 批；第 4 批也不必等第 3 批。嵌套循环再加上外层轮次，就是 <code>(e,o,i)</code>：每一批输入都有自己的外层链和内层链。
+算子要确认时间 `t` 的结果，先检查相关输入是否收齐：
 
-**为什么不用字典序。** 字典序把所有链缝成一条全序，frontier 恒为单点，代价是过度同步：外层第 2 轮的慢工作会一直捂住外层第 3 轮里实际已经关闭的时间。乘积偏序让各条链独立关闭，frontier 才有“一个点”与“多个点”两种形态；3.4.2 观测②里 <code>(1,2,4)</code> 在注入像 <code>(1,3,0)</code> 还活着时就能定稿，正是这个原因。
+1. 读取各输入端口的 frontier。
+2. 检查每条 frontier 是否存在 `f ≤ t`。
+3. 全部不存在时，完成本地计算并输出结果。
 
-> **对应到代码：** <code>Product</code> 与 antichain 是上下两层，不是二选一。<code>Product</code> 是时间类型，只回答同一端口上两个时间谁不晚于谁；<code>Antichain</code> 是容器，把一个端口的候选集合压成最小表示。接缝在 <code>Antichain::insert</code>：新候选已被集合里更小的点盖住就丢弃，否则把被它盖住的旧点剔掉，两次判断都调 <code>Product::less_equal</code>。两个容易踩的坑：<code>Product</code> 同时带着 derive 的 <code>Ord</code>（字典序）和手写的 <code>PartialOrder</code>（乘积偏序），进度语义只认后者，前者只是 <code>MutableAntichain</code> 整理计数的实现细节；antichain 在代码里有两种用途，<code>MutableAntichain</code> 装端口的 frontier，<code>Antichain&lt;T::Summary&gt;</code> 装两个位置之间的路径摘要，两者不要混。
+任何端口仍存在 `f ≤ t`，结果就仍未确定。已有的增量结果可以继续向下游发送。
 
-#### 3.4.5 回到算子：三步拿到答案
+调用方观察结果输出端口。`probe.less_equal(&t)` 为 false，表示该端口时间 `t` 的输出已经收齐。
 
-现在把前面的判据放回一个具体算子。假设内层循环体中有一个累加算子 C：它为每个逻辑时间维护一份当前状态，收到带时间 <code>t</code> 的数据就更新这份状态，并立即把当前增量发给下游。它还需要通过输入 frontier 判断：时间 <code>t</code> 的输入是否已经收完，什么时候可以把当前状态当作最终结果。**当前值由算子自己算，最终性由 frontier 证明。**
-
-算子 C 自己不用去查上游：谁还攥着发送权、哪条消息还在路上，它一概不知道，也不需要知道。运行时替它把这些整理成每个输入端口的一条 frontier，frontier 一变，就会叫醒 C。
-
-C 要做的只有一件事：拿目标时间 <code>t</code> 问这个端口的 frontier——有哪个点 <code>f</code> 满足 <code>f ≤ t</code>，就说明这个时间还可能来数据；一个都不满足，就说明这个时间已经收完。每个输入端口都这样问一遍，然后把结论套到 3.4.1 的判据上：
-
-<pre><code>对每个输入端口：
-  若存在 f ∈ frontier，f ≤ t：还可能有消息影响 t，这一格没有最终答案。
-  若不存在这样的 f：该端口在 t 上已经收完。
-
-单输入端口：这一个端口满足即可拿答案。
-多输入端口：所有输入端口都满足，才拿得到答案。</code></pre>
-
-**同一时刻，不同格子的状态可以完全不同。** 用 3.4.2 的状态（<code>frontier = {(1,2,4), (1,3,0)}</code>）逐格问：
-
-- 问 <code>(1,2,3)</code>：<code>(1,2,4) ≰ 它</code>、<code>(1,3,0) ≰ 它</code>。**有答案。**
-- 问 <code>(1,2,4)</code>：边界上就摆着这个点，它 ≤ 它自己。**没有答案。**
-- 问 <code>(1,3,0)</code>：它 ≤ 它自己。**没有答案。**
-
-反直觉的地方正在这里：有答案的 <code>(1,2,3)</code> 不是最早那一批里最小的，没有答案的 <code>(1,2,4)</code> 反而比它晚。**边界不是一条“到此为止”的线，而是几个“还可能来”的起点。**
-
-所以复杂场景下找答案，不需要在脑子里追踪整张图，只有三步：
-
-1. **定位**：要的答案在哪个算子的哪个时间格上；
-2. **读边界**：把该算子每个相关输入端口当前的 frontier 都拿过来——运行时算好的，不用自己推路径；
-3. **判断**：对每个输入端口问“边界上有没有点 ≤ 这一格”。全部都没有，就可以完成本地计算并确认该时间的结果；状态是否保留还要看未来用途。任何一个端口还有，就继续等。
-
-答案迟迟不出来，排查方向也是现成的：**先看是哪个输入端口、边界上哪个点挡着**，再顺这个点回头找它的支撑——某个算子没有 downgrade 或释放 capability，或者某条消息还没被消费。给关心的输出流挂一个 <code>probe</code>，<code>probe.less_equal(&amp;t)</code> 检查是否仍存在 f ≤ t；<code>less_than(&amp;t)</code> 只检查严格早于 t 的时间；配合 <code>inspect_batch</code> 打印每批数据的时间，就能看出卡在哪一格。
-
-**最后看不动点。** 在本例已收敛的递归中，3.4.2 观测④的“空边界”证明该范围内后续工作已经结束——不是“队列这一刻空了”，而是再没有任何证据能产生本 scope 的时间。对持续流，边界不会整体变空：下一 epoch 的注入会接上，frontier 越过旧 epoch 的所有时间，把“当前结果”升级成“该逻辑时间的答案不会再改”。
-
-整节收束成五行：
-
-<pre><code>pointstamp（时间 + 位置）：一份工作现在在哪、手里拿着什么时间
-frontier（antichain）：每个输入端口一条，装的是还可能来的最早时间
-判据：存在 f ≤ t → 答案拿不到；不存在 → 答案可以获取
-单输入端口直接套判据；多输入端口对每个端口各套一次，取“且”
-frontier 越过目标时间：把“当前结果”升级成“该逻辑时间的答案不会再改”</code></pre>
+frontier 停滞时，检查尚未释放的 cap 和未消费消息。frontier 为空，表示该端口不会再有数据。持续输入下，frontier 可以继续前进，逐步确认各个时间的输出完整。
 
 ## 4. 输入持续到来以后，循环怎样继续工作 {#unbounded}
 
@@ -1517,11 +1600,9 @@ while output_probe.less_equal(e):
 
 ## 5. 把循环写回查询与算法 {#applications}
 
-### 5.1 SQL 中的循环以及 DAG 表达
+### 5.1 相关子查询：截止时刻之前的最近事件
 
-两条路线最后都要落到用户写的查询上。先看两种 SQL 形态：一种是非等值相关子查询，它让每条外层记录携带自己的搜索条件；另一种是 SQL 的递归模型，它让一个集合的定义反复作用于上一轮结果。它们都能用 §2.2 的 scope 表达，但表达的是两种不同的工作。
-
-#### 5.1.1 非等值相关子查询：截止时刻之前的最近事件
+第一章已经介绍递归 SQL。本节讨论另一种查询。每条外层记录都提供一个搜索条件。循环可以逐步缩小搜索范围。
 
 考虑一条“截止时刻之前最近发生了什么”的查询：
 
@@ -1595,31 +1676,11 @@ Timely 有另一种实现思路：不把所有外层记录和内层事件先展�
 
 这张图的收益来自三个物理事实：候选空间按时间和用户预先组织好了，搜索状态可以复用，命中后能提前结束。它不是 SQL 语义强制的：有合适的 as-of join 或范围索引时，直接范围连接可能更快；如果几乎每条外层记录都要扫到最后一个桶，逐桶反馈也帮不上忙。这里要说的是，Timely 允许把这种**逐步搜索过程**写进一个可组合的 scope，而不是只能把问题压成一次巨大的 join。
 
-#### 5.1.2 SQL 的递归模型：WITH RECURSIVE
-
-第二种 SQL 形态是 §1 使用的股权穿透。标准写法如下：
-
-```sql
-WITH RECURSIVE reach(company) AS (
-  SELECT 'P'                                   -- 锚成员：起点
-  UNION                                        -- 去重：重复发现被吸收
-  SELECT h.owned                               -- 递归成员：拿上一轮的发现再查一轮
-  FROM reach r JOIN holds h ON r.company = h.holder
-)
-SELECT company FROM reach;
-```
-
-它和 §1 的循环同构：锚成员是初始的 Δ 集合；递归成员里的 JOIN 是每轮拿新结果继续扩展；UNION 的去重就是 distinct，也是终止性。PostgreSQL 的文档用工作表描述这类查询：递归项读取本轮工作表，去重后用新行替换工作表，直到工作表为空。这里的 `UNION` 按完整行去重；若再加上每轮都变化的深度或路径列，就不能直接沿用“公司只出现一次”的终止论证。
-
-这种工作表执行方式把轮次记在 driver 中：本轮先产生下一轮的输入，再决定是否继续。算子是否并行、哪些步骤物化以及支持的递归形态，需要结合具体引擎验证。参见 [PostgreSQL 递归查询求值](https://www.postgresql.org/docs/18/queries-with.html#QUERIES-WITH-RECURSIVE)。
-
-顺带一个历史事实：纯关系代数（select / project / join / union）被证明表达不了传递闭包（Aho & Ullman, POPL 1979），所以 SQL:1999 专门把递归写进了标准。循环不是语法糖——没有它，股权穿透这类查询在 SQL 里根本说不出来。
-
-### 5.2 两种执行模型：火山与数据流
+### 5.2 递归驱动器与 Timely 反馈边
 
 火山模型由控制流驱动数据流，Timely 由数据流驱动计算。火山模型里，父算子不断调用子算子的 `next()`，执行顺序由调用栈规定；Timely 的查询图描述的是记录怎么变换、流向哪里，而不是规定全局的“第 k 步做什么”。一条记录或一个搜索状态到达某个算子，负责该算子的 worker 就执行对应的任务。
 
-把 §5.1 的两条 SQL 放进来，差别会更具体。对相关标量 Top-1，Volcano 可以把外层记录作为参数，驱动内层的 Sort + Limit：每条外层记录绑定一次 `cutoff`，打开或复用一次内层计划，取到结果后关闭。有适当索引时，内层也可能直接执行范围检索；采用何种计划要以具体引擎的实际执行计划为准。Timely 则把查询翻译成长期存在的操作位置：外层条件进入 scope，内层 arrangement 常驻，没有命中的搜索状态沿 feedback 继续移动，命中的记录直接离开。不是有人命令“现在检查下一个桶”，而是“下一条待搜索记录”流到了那个算子。
+结合 §1.2 的递归 SQL 和 §5.1 的相关查询，可以比较两种执行方式。对相关标量 Top-1，Volcano 可以把外层记录作为参数，驱动内层的 Sort + Limit：每条外层记录绑定一次 `cutoff`，打开或复用一次内层计划，取到结果后关闭。有适当索引时，内层也可能直接执行范围检索；采用何种计划要以具体引擎的实际执行计划为准。Timely 则把查询翻译成长期存在的操作位置：外层条件进入 scope，内层 arrangement 常驻，没有命中的搜索状态沿 feedback 继续移动，命中的记录直接离开。不是有人命令“现在检查下一个桶”，而是“下一条待搜索记录”流到了那个算子。
 
 对 SQL 递归，差别更明显。Volcano 的算子树本身不能有环：如果子节点沿树指回父节点，`next()` 调用就会无限嵌套。因此不能简单地把普通 `next()` 调用链接成环；引擎通常由递归算子或 driver 保存工作表并安排后续展开，这个 driver 也可以封装在递归算子内部。Timely 的 feedback 本来就是图中的一条数据边，新产生的 Δ 记录带着更晚的 iteration 坐标回到下一轮；相关搜索反馈的是未完成状态，递归查询反馈的是新发现的数据，使用的是同一类机制。
 
@@ -1753,9 +1814,13 @@ while 工作表不为空:
 
 ## 延伸阅读
 
+- [《数据库基础》第五章](https://webdam.di.ens.fr/Alice/pdfs/Chapter-5.pdf)：经典关系代数与一阶关系演算。
+- [《数据库基础》第十二章](https://webdam.di.ens.fr/Alice/pdfs/Chapter-12.pdf)：Datalog、递归与最小不动点。
 - [Naiad: A Timely Dataflow System](https://www.microsoft.com/en-us/research/wp-content/uploads/2013/11/naiad_sosp2013.pdf) (SOSP 2013)，§2–3：时间、位置与进度追踪。
 - [Differential Dataflow：Iterate](https://timelydataflow.github.io/differential-dataflow/chapter_2/chapter_2_7.html)：循环、外层集合导入与结果导出。
 - [Differential Dataflow：Reduce / Distinct](https://timelydataflow.github.io/differential-dataflow/chapter_2/chapter_2_6.html)：多重集上的归约与集合语义。
+- [Timely：Capability](https://docs.rs/timely/latest/timely/dataflow/operators/struct.Capability.html)：发送权限、派生与推进。
+- [Timely：Antichain](https://docs.rs/timely/latest/timely/progress/frontier/struct.Antichain.html)：反链与完整性判据。
 - [Timely Dataflow：Operator Execution](https://timelydataflow.github.io/timely-dataflow/chapter_3/chapter_3_3.html)：调度、输入推进和 probe。
 - [PostgreSQL：Recursive Queries](https://www.postgresql.org/docs/18/queries-with.html#QUERIES-WITH-RECURSIVE)：工作表、去重与递归终止。
 - Gilles Kahn, "The Semantics of a Simple Language for Parallel Programming" (1974)：进程网络。

@@ -231,30 +231,452 @@ sum8(a, b, c, d, e, f, g, h)
 
 ## 3. 执行引擎怎样把图跑起来
 
-### 3.1 火山模型：一次查询的一生
+### 3.1 从计算图到数据流
 
-经典数据库执行引擎常以迭代器模型（通常称为 Volcano model）组织执行：执行计划是一棵算子树，每个算子对外只暴露三个接口——`open()`、`next()`、`close()`。根节点要一条数据，就调用子算子的 `next()`，子算子再向自己的子算子要，一路向下；数据沿调用栈一路向上返回。控制流向下，数据流向上，一次 `next()` 搬运一条元组。Graefe 的 Volcano 系统系统化地讨论了这种接口及其并行扩展。
+第二章的节点可以表示一次加法，也可以表示一个算子。接下来，我们采用算子这一层次。每个算子按照规定的规则处理输入。它把结果交给后续算子。
 
-拉模型（pull）当年胜出，理由都很实际：
+我们用**数据流（dataflow）**描述这种组织方式。节点表示算子。边连接一个算子的输出与另一个算子的输入。下面用两条查询举例。
 
-1. 流控由调用关系自然带出——在同一条同步调用链内，消费者不继续调用 `next()`，上游就不继续为它生产；跨进程缓冲仍需单独流控；
-2. 组合性——每个算子是黑盒，优化器可以自由替换实现；
-3. 阻塞算子有现成的表达方式——sort、hash join 的 build 侧只需要在第一次被调用时把输入吃光；
-4. 可以按需停止取数——取消正在运行的计算和回收资源，仍需相应的取消与清理机制；
-5. 同一进程内可由一个线程沿调用栈驱动多个算子，避免为每对相邻算子设置通信队列。
+假设订单表包含 512 个分区。集群中有 64 台机器。每台机器可以同时运行 8 个任务。引擎把每个分区交给一个任务。
 
-注意第 3 条里的分界。执行引擎的经典视角是把计划树沿阻塞算子（pipeline breaker）切开：scan、filter、project 这类算子随产随消，它们组成的极大链就是一条 pipeline，内部可以逐条传递，通常不必把整份中间关系物化；碰到全量 sort、阻塞式聚合、常规 hash join 的 build 侧，数据必须物化，成为下一条 pipeline 的输入。**pipeline breaker 划出数据必须先准备好的边界；各段的执行时机和线程分配则由运行时决定。**
+**例一：非聚合查询。** 每个任务扫描自己的分区。过滤算子保留金额不低于 100 的订单。投影算子输出订单号。各任务独立写出结果。
+
+```sql
+SELECT order_id
+FROM orders
+WHERE amount >= 100;
+```
+
+<figure id="dataflow-row-example" class="fig-card fig-card--dense">
+<svg class="fig-svg" viewBox="0 0 840 636" role="img" aria-label="64台机器各运行8个任务，共512个并行任务。每个任务扫描、过滤并投影自己的输入分区。各任务独立写出结果分区。图中展示机器1、机器2和机器64，其余机器用省略号表示。">
+<defs>
+<marker id="dataflow-row-example-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#78716c"/></marker>
+<marker id="dataflow-row-example-merge" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#0f766e"/></marker>
+</defs>
+<text x="16" y="26" text-anchor="start" font-size="18" font-weight="600" fill="#1c1917">非聚合：512 个任务独立处理各自的分区</text>
+<text x="16" y="51" text-anchor="start" font-size="14" font-weight="400" fill="#57534e">示例配置：64 台机器 × 每台 8 个任务 = 512 路并行</text>
+<text x="16" y="76" text-anchor="start" font-size="12" font-weight="400" fill="#57534e">算子定义</text>
+<rect x="16" y="88" width="244" height="56" rx="8" fill="#fff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="138" y="111" text-anchor="middle" font-size="15" font-weight="600" fill="#1c1917">扫描算子</text>
+<text x="138" y="132" text-anchor="middle" font-size="13" font-weight="400" fill="#57534e">读取 orders</text>
+<rect x="296" y="88" width="244" height="56" rx="8" fill="#fff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="418" y="111" text-anchor="middle" font-size="15" font-weight="600" fill="#1c1917">过滤算子</text>
+<text x="418" y="132" text-anchor="middle" font-size="13" font-weight="400" fill="#57534e">amount ≥ 100</text>
+<rect x="580" y="88" width="244" height="56" rx="8" fill="#e7f4ef" stroke="#0f766e" stroke-width="1.3"/>
+<text x="702" y="111" text-anchor="middle" font-size="15" font-weight="600" fill="#1c1917">投影算子</text>
+<text x="702" y="132" text-anchor="middle" font-size="13" font-weight="400" fill="#57534e">保留 order_id</text>
+<line x1="264" y1="116" x2="291" y2="116" stroke="#78716c" stroke-width="1.6" marker-end="url(#dataflow-row-example-arrow)"/>
+<line x1="544" y1="116" x2="575" y2="116" stroke="#78716c" stroke-width="1.6" marker-end="url(#dataflow-row-example-arrow)"/>
+<line x1="16" y1="160" x2="824" y2="160" stroke="#e8e0d4" stroke-dasharray="4 4"/>
+<text x="420" y="184" text-anchor="middle" font-size="14" font-weight="600" fill="#1c1917">展开执行实例：每个分区执行一份扫描、过滤和后续计算</text>
+<rect x="16" y="202" width="244" height="350" rx="12" fill="#f6f1e7" stroke="#e8e0d4" stroke-width="1.3"/>
+<text x="32" y="226" text-anchor="start" font-size="16" font-weight="600" fill="#1c1917">机器 1</text>
+<text x="244" y="226" text-anchor="end" font-size="12" font-weight="400" fill="#57534e">8 个并行任务</text>
+<rect x="28" y="248" width="220" height="74" rx="8" fill="#fff" stroke="#e8e0d4" stroke-width="1.3"/>
+<text x="38" y="266" text-anchor="start" font-size="12" font-weight="600" fill="#57534e">任务 1 · 输入分区 1</text>
+<rect x="36" y="274" width="58" height="24" rx="5" fill="#fff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="65" y="291" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">扫描</text>
+<line x1="95" y1="286" x2="106" y2="286" stroke="#78716c" stroke-width="1.2" marker-end="url(#dataflow-row-example-arrow)"/>
+<rect x="108" y="274" width="58" height="24" rx="5" fill="#fff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="137" y="291" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">过滤</text>
+<line x1="167" y1="286" x2="178" y2="286" stroke="#78716c" stroke-width="1.2" marker-end="url(#dataflow-row-example-arrow)"/>
+<rect x="180" y="274" width="58" height="24" rx="5" fill="#e7f4ef" stroke="#0f766e" stroke-width="1.3"/>
+<text x="209" y="291" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">投影</text>
+<text x="138" y="314" text-anchor="middle" font-size="12" font-weight="400" fill="#0f766e">独立写出结果分区 1</text>
+<rect x="28" y="330" width="220" height="74" rx="8" fill="#fff" stroke="#e8e0d4" stroke-width="1.3"/>
+<text x="38" y="348" text-anchor="start" font-size="12" font-weight="600" fill="#57534e">任务 2 · 输入分区 2</text>
+<rect x="36" y="356" width="58" height="24" rx="5" fill="#fff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="65" y="373" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">扫描</text>
+<line x1="95" y1="368" x2="106" y2="368" stroke="#78716c" stroke-width="1.2" marker-end="url(#dataflow-row-example-arrow)"/>
+<rect x="108" y="356" width="58" height="24" rx="5" fill="#fff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="137" y="373" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">过滤</text>
+<line x1="167" y1="368" x2="178" y2="368" stroke="#78716c" stroke-width="1.2" marker-end="url(#dataflow-row-example-arrow)"/>
+<rect x="180" y="356" width="58" height="24" rx="5" fill="#e7f4ef" stroke="#0f766e" stroke-width="1.3"/>
+<text x="209" y="373" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">投影</text>
+<text x="138" y="396" text-anchor="middle" font-size="12" font-weight="400" fill="#0f766e">独立写出结果分区 2</text>
+<rect x="28" y="440" width="220" height="74" rx="8" fill="#fff" stroke="#e8e0d4" stroke-width="1.3"/>
+<text x="38" y="458" text-anchor="start" font-size="12" font-weight="600" fill="#57534e">任务 8 · 输入分区 8</text>
+<rect x="36" y="466" width="58" height="24" rx="5" fill="#fff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="65" y="483" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">扫描</text>
+<line x1="95" y1="478" x2="106" y2="478" stroke="#78716c" stroke-width="1.2" marker-end="url(#dataflow-row-example-arrow)"/>
+<rect x="108" y="466" width="58" height="24" rx="5" fill="#fff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="137" y="483" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">过滤</text>
+<line x1="167" y1="478" x2="178" y2="478" stroke="#78716c" stroke-width="1.2" marker-end="url(#dataflow-row-example-arrow)"/>
+<rect x="180" y="466" width="58" height="24" rx="5" fill="#e7f4ef" stroke="#0f766e" stroke-width="1.3"/>
+<text x="209" y="483" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">投影</text>
+<text x="138" y="506" text-anchor="middle" font-size="12" font-weight="400" fill="#0f766e">独立写出结果分区 8</text>
+<text x="138" y="428" text-anchor="middle" font-size="25" font-weight="400" fill="#78716c">⋮</text>
+<text x="138" y="538" text-anchor="middle" font-size="12" font-weight="400" fill="#57534e">任务 1—8 各处理一个分区</text>
+<rect x="296" y="202" width="244" height="350" rx="12" fill="#f6f1e7" stroke="#e8e0d4" stroke-width="1.3"/>
+<text x="312" y="226" text-anchor="start" font-size="16" font-weight="600" fill="#1c1917">机器 2</text>
+<text x="524" y="226" text-anchor="end" font-size="12" font-weight="400" fill="#57534e">8 个并行任务</text>
+<rect x="308" y="248" width="220" height="74" rx="8" fill="#fff" stroke="#e8e0d4" stroke-width="1.3"/>
+<text x="318" y="266" text-anchor="start" font-size="12" font-weight="600" fill="#57534e">任务 9 · 输入分区 9</text>
+<rect x="316" y="274" width="58" height="24" rx="5" fill="#fff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="345" y="291" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">扫描</text>
+<line x1="375" y1="286" x2="386" y2="286" stroke="#78716c" stroke-width="1.2" marker-end="url(#dataflow-row-example-arrow)"/>
+<rect x="388" y="274" width="58" height="24" rx="5" fill="#fff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="417" y="291" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">过滤</text>
+<line x1="447" y1="286" x2="458" y2="286" stroke="#78716c" stroke-width="1.2" marker-end="url(#dataflow-row-example-arrow)"/>
+<rect x="460" y="274" width="58" height="24" rx="5" fill="#e7f4ef" stroke="#0f766e" stroke-width="1.3"/>
+<text x="489" y="291" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">投影</text>
+<text x="418" y="314" text-anchor="middle" font-size="12" font-weight="400" fill="#0f766e">独立写出结果分区 9</text>
+<rect x="308" y="330" width="220" height="74" rx="8" fill="#fff" stroke="#e8e0d4" stroke-width="1.3"/>
+<text x="318" y="348" text-anchor="start" font-size="12" font-weight="600" fill="#57534e">任务 10 · 输入分区 10</text>
+<rect x="316" y="356" width="58" height="24" rx="5" fill="#fff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="345" y="373" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">扫描</text>
+<line x1="375" y1="368" x2="386" y2="368" stroke="#78716c" stroke-width="1.2" marker-end="url(#dataflow-row-example-arrow)"/>
+<rect x="388" y="356" width="58" height="24" rx="5" fill="#fff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="417" y="373" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">过滤</text>
+<line x1="447" y1="368" x2="458" y2="368" stroke="#78716c" stroke-width="1.2" marker-end="url(#dataflow-row-example-arrow)"/>
+<rect x="460" y="356" width="58" height="24" rx="5" fill="#e7f4ef" stroke="#0f766e" stroke-width="1.3"/>
+<text x="489" y="373" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">投影</text>
+<text x="418" y="396" text-anchor="middle" font-size="12" font-weight="400" fill="#0f766e">独立写出结果分区 10</text>
+<rect x="308" y="440" width="220" height="74" rx="8" fill="#fff" stroke="#e8e0d4" stroke-width="1.3"/>
+<text x="318" y="458" text-anchor="start" font-size="12" font-weight="600" fill="#57534e">任务 16 · 输入分区 16</text>
+<rect x="316" y="466" width="58" height="24" rx="5" fill="#fff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="345" y="483" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">扫描</text>
+<line x1="375" y1="478" x2="386" y2="478" stroke="#78716c" stroke-width="1.2" marker-end="url(#dataflow-row-example-arrow)"/>
+<rect x="388" y="466" width="58" height="24" rx="5" fill="#fff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="417" y="483" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">过滤</text>
+<line x1="447" y1="478" x2="458" y2="478" stroke="#78716c" stroke-width="1.2" marker-end="url(#dataflow-row-example-arrow)"/>
+<rect x="460" y="466" width="58" height="24" rx="5" fill="#e7f4ef" stroke="#0f766e" stroke-width="1.3"/>
+<text x="489" y="483" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">投影</text>
+<text x="418" y="506" text-anchor="middle" font-size="12" font-weight="400" fill="#0f766e">独立写出结果分区 16</text>
+<text x="418" y="428" text-anchor="middle" font-size="25" font-weight="400" fill="#78716c">⋮</text>
+<text x="418" y="538" text-anchor="middle" font-size="12" font-weight="400" fill="#57534e">任务 9—16 各处理一个分区</text>
+<rect x="580" y="202" width="244" height="350" rx="12" fill="#f6f1e7" stroke="#e8e0d4" stroke-width="1.3"/>
+<text x="596" y="226" text-anchor="start" font-size="16" font-weight="600" fill="#1c1917">机器 64</text>
+<text x="808" y="226" text-anchor="end" font-size="12" font-weight="400" fill="#57534e">8 个并行任务</text>
+<rect x="592" y="248" width="220" height="74" rx="8" fill="#fff" stroke="#e8e0d4" stroke-width="1.3"/>
+<text x="602" y="266" text-anchor="start" font-size="12" font-weight="600" fill="#57534e">任务 505 · 输入分区 505</text>
+<rect x="600" y="274" width="58" height="24" rx="5" fill="#fff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="629" y="291" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">扫描</text>
+<line x1="659" y1="286" x2="670" y2="286" stroke="#78716c" stroke-width="1.2" marker-end="url(#dataflow-row-example-arrow)"/>
+<rect x="672" y="274" width="58" height="24" rx="5" fill="#fff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="701" y="291" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">过滤</text>
+<line x1="731" y1="286" x2="742" y2="286" stroke="#78716c" stroke-width="1.2" marker-end="url(#dataflow-row-example-arrow)"/>
+<rect x="744" y="274" width="58" height="24" rx="5" fill="#e7f4ef" stroke="#0f766e" stroke-width="1.3"/>
+<text x="773" y="291" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">投影</text>
+<text x="702" y="314" text-anchor="middle" font-size="12" font-weight="400" fill="#0f766e">独立写出结果分区 505</text>
+<rect x="592" y="330" width="220" height="74" rx="8" fill="#fff" stroke="#e8e0d4" stroke-width="1.3"/>
+<text x="602" y="348" text-anchor="start" font-size="12" font-weight="600" fill="#57534e">任务 506 · 输入分区 506</text>
+<rect x="600" y="356" width="58" height="24" rx="5" fill="#fff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="629" y="373" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">扫描</text>
+<line x1="659" y1="368" x2="670" y2="368" stroke="#78716c" stroke-width="1.2" marker-end="url(#dataflow-row-example-arrow)"/>
+<rect x="672" y="356" width="58" height="24" rx="5" fill="#fff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="701" y="373" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">过滤</text>
+<line x1="731" y1="368" x2="742" y2="368" stroke="#78716c" stroke-width="1.2" marker-end="url(#dataflow-row-example-arrow)"/>
+<rect x="744" y="356" width="58" height="24" rx="5" fill="#e7f4ef" stroke="#0f766e" stroke-width="1.3"/>
+<text x="773" y="373" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">投影</text>
+<text x="702" y="396" text-anchor="middle" font-size="12" font-weight="400" fill="#0f766e">独立写出结果分区 506</text>
+<rect x="592" y="440" width="220" height="74" rx="8" fill="#fff" stroke="#e8e0d4" stroke-width="1.3"/>
+<text x="602" y="458" text-anchor="start" font-size="12" font-weight="600" fill="#57534e">任务 512 · 输入分区 512</text>
+<rect x="600" y="466" width="58" height="24" rx="5" fill="#fff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="629" y="483" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">扫描</text>
+<line x1="659" y1="478" x2="670" y2="478" stroke="#78716c" stroke-width="1.2" marker-end="url(#dataflow-row-example-arrow)"/>
+<rect x="672" y="466" width="58" height="24" rx="5" fill="#fff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="701" y="483" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">过滤</text>
+<line x1="731" y1="478" x2="742" y2="478" stroke="#78716c" stroke-width="1.2" marker-end="url(#dataflow-row-example-arrow)"/>
+<rect x="744" y="466" width="58" height="24" rx="5" fill="#e7f4ef" stroke="#0f766e" stroke-width="1.3"/>
+<text x="773" y="483" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">投影</text>
+<text x="702" y="506" text-anchor="middle" font-size="12" font-weight="400" fill="#0f766e">独立写出结果分区 512</text>
+<text x="702" y="428" text-anchor="middle" font-size="25" font-weight="400" fill="#78716c">⋮</text>
+<text x="702" y="538" text-anchor="middle" font-size="12" font-weight="400" fill="#57534e">任务 505—512 各处理一个分区</text>
+<text x="560" y="371" text-anchor="middle" font-size="23" font-weight="400" fill="#78716c">⋯</text>
+<rect x="16" y="576" width="808" height="44" rx="8" fill="#e7f4ef" stroke="#0f766e" stroke-width="1.3"/>
+<text x="420" y="603" text-anchor="middle" font-size="15" font-weight="600" fill="#0f766e">各任务独立写出结果。输出仍保留为 512 个分区。</text>
+</svg>
+<figcaption class="fig-caption">每行表示一个任务。每个任务都有自己的算子实例。各任务可以并行执行。省略号代表未画出的机器和任务。</figcaption>
+</figure>
+
+**例二：聚合查询。** 每个任务先计算本分区的局部和。各机器再合并本机结果。后续任务继续分层合并。本例采用整数求和。
+
+```sql
+SELECT SUM(amount)
+FROM orders
+WHERE amount >= 100;
+```
+
+<figure id="dataflow-sum-example" class="fig-card fig-card--dense">
+<svg class="fig-svg" viewBox="0 0 840 862" role="img" aria-label="64台机器各运行8个任务，共512个并行任务。每个任务扫描并过滤一个分区，再计算局部和。各机器合并本机8个局部和。8个合并任务各合并8台机器的结果。最终任务合并这8个结果。">
+<defs>
+<marker id="dataflow-sum-example-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#78716c"/></marker>
+<marker id="dataflow-sum-example-merge" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#9a3412"/></marker>
+</defs>
+<text x="16" y="26" text-anchor="start" font-size="18" font-weight="600" fill="#1c1917">聚合：512 个任务求局部和，再分层合并</text>
+<text x="16" y="51" text-anchor="start" font-size="14" font-weight="400" fill="#57534e">示例配置：64 台机器 × 每台 8 个任务 = 512 路并行</text>
+<text x="16" y="76" text-anchor="start" font-size="12" font-weight="400" fill="#57534e">算子定义</text>
+<rect x="16" y="88" width="244" height="56" rx="8" fill="#fff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="138" y="111" text-anchor="middle" font-size="15" font-weight="600" fill="#1c1917">扫描算子</text>
+<text x="138" y="132" text-anchor="middle" font-size="13" font-weight="400" fill="#57534e">读取 orders</text>
+<rect x="296" y="88" width="244" height="56" rx="8" fill="#fff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="418" y="111" text-anchor="middle" font-size="15" font-weight="600" fill="#1c1917">过滤算子</text>
+<text x="418" y="132" text-anchor="middle" font-size="13" font-weight="400" fill="#57534e">amount ≥ 100</text>
+<rect x="580" y="88" width="244" height="56" rx="8" fill="#ffedd5" stroke="#9a3412" stroke-width="1.3"/>
+<text x="702" y="111" text-anchor="middle" font-size="15" font-weight="600" fill="#1c1917">聚合算子</text>
+<text x="702" y="132" text-anchor="middle" font-size="13" font-weight="400" fill="#57534e">SUM(amount)</text>
+<line x1="264" y1="116" x2="291" y2="116" stroke="#78716c" stroke-width="1.6" marker-end="url(#dataflow-sum-example-arrow)"/>
+<line x1="544" y1="116" x2="575" y2="116" stroke="#78716c" stroke-width="1.6" marker-end="url(#dataflow-sum-example-arrow)"/>
+<line x1="16" y1="160" x2="824" y2="160" stroke="#e8e0d4" stroke-dasharray="4 4"/>
+<text x="420" y="184" text-anchor="middle" font-size="14" font-weight="600" fill="#1c1917">展开执行实例：每个分区执行一份扫描、过滤和后续计算</text>
+<rect x="16" y="202" width="244" height="350" rx="12" fill="#f6f1e7" stroke="#e8e0d4" stroke-width="1.3"/>
+<text x="32" y="226" text-anchor="start" font-size="16" font-weight="600" fill="#1c1917">机器 1</text>
+<text x="244" y="226" text-anchor="end" font-size="12" font-weight="400" fill="#57534e">8 个并行任务</text>
+<rect x="28" y="248" width="220" height="74" rx="8" fill="#fff" stroke="#e8e0d4" stroke-width="1.3"/>
+<text x="38" y="266" text-anchor="start" font-size="12" font-weight="600" fill="#57534e">任务 1 · 输入分区 1</text>
+<rect x="36" y="274" width="58" height="24" rx="5" fill="#fff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="65" y="291" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">扫描</text>
+<line x1="95" y1="286" x2="106" y2="286" stroke="#78716c" stroke-width="1.2" marker-end="url(#dataflow-sum-example-arrow)"/>
+<rect x="108" y="274" width="58" height="24" rx="5" fill="#fff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="137" y="291" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">过滤</text>
+<line x1="167" y1="286" x2="178" y2="286" stroke="#78716c" stroke-width="1.2" marker-end="url(#dataflow-sum-example-arrow)"/>
+<rect x="180" y="274" width="58" height="24" rx="5" fill="#ffedd5" stroke="#9a3412" stroke-width="1.3"/>
+<text x="209" y="291" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">局部和</text>
+<text x="138" y="314" text-anchor="middle" font-size="12" font-weight="400" fill="#9a3412">局部结果 s1</text>
+<path d="M238 286 H253" fill="none" stroke="#9a3412" stroke-width="1.4"/>
+<rect x="28" y="330" width="220" height="74" rx="8" fill="#fff" stroke="#e8e0d4" stroke-width="1.3"/>
+<text x="38" y="348" text-anchor="start" font-size="12" font-weight="600" fill="#57534e">任务 2 · 输入分区 2</text>
+<rect x="36" y="356" width="58" height="24" rx="5" fill="#fff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="65" y="373" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">扫描</text>
+<line x1="95" y1="368" x2="106" y2="368" stroke="#78716c" stroke-width="1.2" marker-end="url(#dataflow-sum-example-arrow)"/>
+<rect x="108" y="356" width="58" height="24" rx="5" fill="#fff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="137" y="373" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">过滤</text>
+<line x1="167" y1="368" x2="178" y2="368" stroke="#78716c" stroke-width="1.2" marker-end="url(#dataflow-sum-example-arrow)"/>
+<rect x="180" y="356" width="58" height="24" rx="5" fill="#ffedd5" stroke="#9a3412" stroke-width="1.3"/>
+<text x="209" y="373" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">局部和</text>
+<text x="138" y="396" text-anchor="middle" font-size="12" font-weight="400" fill="#9a3412">局部结果 s2</text>
+<path d="M238 368 H253" fill="none" stroke="#9a3412" stroke-width="1.4"/>
+<rect x="28" y="440" width="220" height="74" rx="8" fill="#fff" stroke="#e8e0d4" stroke-width="1.3"/>
+<text x="38" y="458" text-anchor="start" font-size="12" font-weight="600" fill="#57534e">任务 8 · 输入分区 8</text>
+<rect x="36" y="466" width="58" height="24" rx="5" fill="#fff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="65" y="483" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">扫描</text>
+<line x1="95" y1="478" x2="106" y2="478" stroke="#78716c" stroke-width="1.2" marker-end="url(#dataflow-sum-example-arrow)"/>
+<rect x="108" y="466" width="58" height="24" rx="5" fill="#fff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="137" y="483" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">过滤</text>
+<line x1="167" y1="478" x2="178" y2="478" stroke="#78716c" stroke-width="1.2" marker-end="url(#dataflow-sum-example-arrow)"/>
+<rect x="180" y="466" width="58" height="24" rx="5" fill="#ffedd5" stroke="#9a3412" stroke-width="1.3"/>
+<text x="209" y="483" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">局部和</text>
+<text x="138" y="506" text-anchor="middle" font-size="12" font-weight="400" fill="#9a3412">局部结果 s8</text>
+<path d="M238 478 H253" fill="none" stroke="#9a3412" stroke-width="1.4"/>
+<text x="138" y="428" text-anchor="middle" font-size="25" font-weight="400" fill="#78716c">⋮</text>
+<text x="138" y="538" text-anchor="middle" font-size="12" font-weight="400" fill="#57534e">任务 1—8 各处理一个分区</text>
+<path d="M253 286 V562 H138 V574" fill="none" stroke="#9a3412" stroke-width="1.5" marker-end="url(#dataflow-sum-example-merge)"/>
+<rect x="51" y="574" width="174" height="46" rx="8" fill="#ffedd5" stroke="#9a3412" stroke-width="1.3"/>
+<text x="138" y="593" text-anchor="middle" font-size="14" font-weight="600" fill="#9a3412">机器内合并</text>
+<text x="138" y="611" text-anchor="middle" font-size="11" font-weight="400" fill="#9a3412">8 个局部结果 → 1 个结果</text>
+<rect x="296" y="202" width="244" height="350" rx="12" fill="#f6f1e7" stroke="#e8e0d4" stroke-width="1.3"/>
+<text x="312" y="226" text-anchor="start" font-size="16" font-weight="600" fill="#1c1917">机器 2</text>
+<text x="524" y="226" text-anchor="end" font-size="12" font-weight="400" fill="#57534e">8 个并行任务</text>
+<rect x="308" y="248" width="220" height="74" rx="8" fill="#fff" stroke="#e8e0d4" stroke-width="1.3"/>
+<text x="318" y="266" text-anchor="start" font-size="12" font-weight="600" fill="#57534e">任务 9 · 输入分区 9</text>
+<rect x="316" y="274" width="58" height="24" rx="5" fill="#fff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="345" y="291" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">扫描</text>
+<line x1="375" y1="286" x2="386" y2="286" stroke="#78716c" stroke-width="1.2" marker-end="url(#dataflow-sum-example-arrow)"/>
+<rect x="388" y="274" width="58" height="24" rx="5" fill="#fff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="417" y="291" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">过滤</text>
+<line x1="447" y1="286" x2="458" y2="286" stroke="#78716c" stroke-width="1.2" marker-end="url(#dataflow-sum-example-arrow)"/>
+<rect x="460" y="274" width="58" height="24" rx="5" fill="#ffedd5" stroke="#9a3412" stroke-width="1.3"/>
+<text x="489" y="291" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">局部和</text>
+<text x="418" y="314" text-anchor="middle" font-size="12" font-weight="400" fill="#9a3412">局部结果 s9</text>
+<path d="M518 286 H533" fill="none" stroke="#9a3412" stroke-width="1.4"/>
+<rect x="308" y="330" width="220" height="74" rx="8" fill="#fff" stroke="#e8e0d4" stroke-width="1.3"/>
+<text x="318" y="348" text-anchor="start" font-size="12" font-weight="600" fill="#57534e">任务 10 · 输入分区 10</text>
+<rect x="316" y="356" width="58" height="24" rx="5" fill="#fff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="345" y="373" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">扫描</text>
+<line x1="375" y1="368" x2="386" y2="368" stroke="#78716c" stroke-width="1.2" marker-end="url(#dataflow-sum-example-arrow)"/>
+<rect x="388" y="356" width="58" height="24" rx="5" fill="#fff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="417" y="373" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">过滤</text>
+<line x1="447" y1="368" x2="458" y2="368" stroke="#78716c" stroke-width="1.2" marker-end="url(#dataflow-sum-example-arrow)"/>
+<rect x="460" y="356" width="58" height="24" rx="5" fill="#ffedd5" stroke="#9a3412" stroke-width="1.3"/>
+<text x="489" y="373" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">局部和</text>
+<text x="418" y="396" text-anchor="middle" font-size="12" font-weight="400" fill="#9a3412">局部结果 s10</text>
+<path d="M518 368 H533" fill="none" stroke="#9a3412" stroke-width="1.4"/>
+<rect x="308" y="440" width="220" height="74" rx="8" fill="#fff" stroke="#e8e0d4" stroke-width="1.3"/>
+<text x="318" y="458" text-anchor="start" font-size="12" font-weight="600" fill="#57534e">任务 16 · 输入分区 16</text>
+<rect x="316" y="466" width="58" height="24" rx="5" fill="#fff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="345" y="483" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">扫描</text>
+<line x1="375" y1="478" x2="386" y2="478" stroke="#78716c" stroke-width="1.2" marker-end="url(#dataflow-sum-example-arrow)"/>
+<rect x="388" y="466" width="58" height="24" rx="5" fill="#fff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="417" y="483" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">过滤</text>
+<line x1="447" y1="478" x2="458" y2="478" stroke="#78716c" stroke-width="1.2" marker-end="url(#dataflow-sum-example-arrow)"/>
+<rect x="460" y="466" width="58" height="24" rx="5" fill="#ffedd5" stroke="#9a3412" stroke-width="1.3"/>
+<text x="489" y="483" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">局部和</text>
+<text x="418" y="506" text-anchor="middle" font-size="12" font-weight="400" fill="#9a3412">局部结果 s16</text>
+<path d="M518 478 H533" fill="none" stroke="#9a3412" stroke-width="1.4"/>
+<text x="418" y="428" text-anchor="middle" font-size="25" font-weight="400" fill="#78716c">⋮</text>
+<text x="418" y="538" text-anchor="middle" font-size="12" font-weight="400" fill="#57534e">任务 9—16 各处理一个分区</text>
+<path d="M533 286 V562 H418 V574" fill="none" stroke="#9a3412" stroke-width="1.5" marker-end="url(#dataflow-sum-example-merge)"/>
+<rect x="331" y="574" width="174" height="46" rx="8" fill="#ffedd5" stroke="#9a3412" stroke-width="1.3"/>
+<text x="418" y="593" text-anchor="middle" font-size="14" font-weight="600" fill="#9a3412">机器内合并</text>
+<text x="418" y="611" text-anchor="middle" font-size="11" font-weight="400" fill="#9a3412">8 个局部结果 → 1 个结果</text>
+<rect x="580" y="202" width="244" height="350" rx="12" fill="#f6f1e7" stroke="#e8e0d4" stroke-width="1.3"/>
+<text x="596" y="226" text-anchor="start" font-size="16" font-weight="600" fill="#1c1917">机器 64</text>
+<text x="808" y="226" text-anchor="end" font-size="12" font-weight="400" fill="#57534e">8 个并行任务</text>
+<rect x="592" y="248" width="220" height="74" rx="8" fill="#fff" stroke="#e8e0d4" stroke-width="1.3"/>
+<text x="602" y="266" text-anchor="start" font-size="12" font-weight="600" fill="#57534e">任务 505 · 输入分区 505</text>
+<rect x="600" y="274" width="58" height="24" rx="5" fill="#fff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="629" y="291" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">扫描</text>
+<line x1="659" y1="286" x2="670" y2="286" stroke="#78716c" stroke-width="1.2" marker-end="url(#dataflow-sum-example-arrow)"/>
+<rect x="672" y="274" width="58" height="24" rx="5" fill="#fff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="701" y="291" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">过滤</text>
+<line x1="731" y1="286" x2="742" y2="286" stroke="#78716c" stroke-width="1.2" marker-end="url(#dataflow-sum-example-arrow)"/>
+<rect x="744" y="274" width="58" height="24" rx="5" fill="#ffedd5" stroke="#9a3412" stroke-width="1.3"/>
+<text x="773" y="291" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">局部和</text>
+<text x="702" y="314" text-anchor="middle" font-size="12" font-weight="400" fill="#9a3412">局部结果 s505</text>
+<path d="M802 286 H817" fill="none" stroke="#9a3412" stroke-width="1.4"/>
+<rect x="592" y="330" width="220" height="74" rx="8" fill="#fff" stroke="#e8e0d4" stroke-width="1.3"/>
+<text x="602" y="348" text-anchor="start" font-size="12" font-weight="600" fill="#57534e">任务 506 · 输入分区 506</text>
+<rect x="600" y="356" width="58" height="24" rx="5" fill="#fff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="629" y="373" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">扫描</text>
+<line x1="659" y1="368" x2="670" y2="368" stroke="#78716c" stroke-width="1.2" marker-end="url(#dataflow-sum-example-arrow)"/>
+<rect x="672" y="356" width="58" height="24" rx="5" fill="#fff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="701" y="373" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">过滤</text>
+<line x1="731" y1="368" x2="742" y2="368" stroke="#78716c" stroke-width="1.2" marker-end="url(#dataflow-sum-example-arrow)"/>
+<rect x="744" y="356" width="58" height="24" rx="5" fill="#ffedd5" stroke="#9a3412" stroke-width="1.3"/>
+<text x="773" y="373" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">局部和</text>
+<text x="702" y="396" text-anchor="middle" font-size="12" font-weight="400" fill="#9a3412">局部结果 s506</text>
+<path d="M802 368 H817" fill="none" stroke="#9a3412" stroke-width="1.4"/>
+<rect x="592" y="440" width="220" height="74" rx="8" fill="#fff" stroke="#e8e0d4" stroke-width="1.3"/>
+<text x="602" y="458" text-anchor="start" font-size="12" font-weight="600" fill="#57534e">任务 512 · 输入分区 512</text>
+<rect x="600" y="466" width="58" height="24" rx="5" fill="#fff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="629" y="483" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">扫描</text>
+<line x1="659" y1="478" x2="670" y2="478" stroke="#78716c" stroke-width="1.2" marker-end="url(#dataflow-sum-example-arrow)"/>
+<rect x="672" y="466" width="58" height="24" rx="5" fill="#fff" stroke="#d6d3d1" stroke-width="1.3"/>
+<text x="701" y="483" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">过滤</text>
+<line x1="731" y1="478" x2="742" y2="478" stroke="#78716c" stroke-width="1.2" marker-end="url(#dataflow-sum-example-arrow)"/>
+<rect x="744" y="466" width="58" height="24" rx="5" fill="#ffedd5" stroke="#9a3412" stroke-width="1.3"/>
+<text x="773" y="483" text-anchor="middle" font-size="12" font-weight="400" fill="#1c1917">局部和</text>
+<text x="702" y="506" text-anchor="middle" font-size="12" font-weight="400" fill="#9a3412">局部结果 s512</text>
+<path d="M802 478 H817" fill="none" stroke="#9a3412" stroke-width="1.4"/>
+<text x="702" y="428" text-anchor="middle" font-size="25" font-weight="400" fill="#78716c">⋮</text>
+<text x="702" y="538" text-anchor="middle" font-size="12" font-weight="400" fill="#57534e">任务 505—512 各处理一个分区</text>
+<path d="M817 286 V562 H702 V574" fill="none" stroke="#9a3412" stroke-width="1.5" marker-end="url(#dataflow-sum-example-merge)"/>
+<rect x="615" y="574" width="174" height="46" rx="8" fill="#ffedd5" stroke="#9a3412" stroke-width="1.3"/>
+<text x="702" y="593" text-anchor="middle" font-size="14" font-weight="600" fill="#9a3412">机器内合并</text>
+<text x="702" y="611" text-anchor="middle" font-size="11" font-weight="400" fill="#9a3412">8 个局部结果 → 1 个结果</text>
+<text x="560" y="371" text-anchor="middle" font-size="23" font-weight="400" fill="#78716c">⋯</text>
+<path d="M138 620 V642 H83.5 V670" fill="none" stroke="#9a3412" stroke-width="1.5" marker-end="url(#dataflow-sum-example-merge)"/>
+<path d="M418 620 V650 H83.5 V670" fill="none" stroke="#9a3412" stroke-width="1.5" marker-end="url(#dataflow-sum-example-merge)"/>
+<path d="M702 620 V642 H762.5 V670" fill="none" stroke="#9a3412" stroke-width="1.5" marker-end="url(#dataflow-sum-example-merge)"/>
+<text x="420" y="662" text-anchor="middle" font-size="12" font-weight="400" fill="#57534e">64 台机器按每 8 台分组；图中省略其余机器的连线</text>
+<rect x="43.0" y="670" width="81" height="46" rx="8" fill="#ffedd5" stroke="#9a3412" stroke-width="1.3"/>
+<text x="83.5" y="690" text-anchor="middle" font-size="11" font-weight="600" fill="#9a3412">合并任务 1</text>
+<text x="83.5" y="707" text-anchor="middle" font-size="10" font-weight="400" fill="#57534e">接收 8 机结果</text>
+<line x1="83.5" y1="716" x2="350" y2="766" stroke="#9a3412" stroke-width="1.4" marker-end="url(#dataflow-sum-example-merge)"/>
+<rect x="140.0" y="670" width="81" height="46" rx="8" fill="#ffedd5" stroke="#9a3412" stroke-width="1.3"/>
+<text x="180.5" y="690" text-anchor="middle" font-size="11" font-weight="600" fill="#9a3412">合并任务 2</text>
+<text x="180.5" y="707" text-anchor="middle" font-size="10" font-weight="400" fill="#57534e">接收 8 机结果</text>
+<line x1="180.5" y1="716" x2="370" y2="766" stroke="#9a3412" stroke-width="1.4" marker-end="url(#dataflow-sum-example-merge)"/>
+<rect x="237.0" y="670" width="81" height="46" rx="8" fill="#ffedd5" stroke="#9a3412" stroke-width="1.3"/>
+<text x="277.5" y="690" text-anchor="middle" font-size="11" font-weight="600" fill="#9a3412">合并任务 3</text>
+<text x="277.5" y="707" text-anchor="middle" font-size="10" font-weight="400" fill="#57534e">接收 8 机结果</text>
+<line x1="277.5" y1="716" x2="390" y2="766" stroke="#9a3412" stroke-width="1.4" marker-end="url(#dataflow-sum-example-merge)"/>
+<rect x="334.0" y="670" width="81" height="46" rx="8" fill="#ffedd5" stroke="#9a3412" stroke-width="1.3"/>
+<text x="374.5" y="690" text-anchor="middle" font-size="11" font-weight="600" fill="#9a3412">合并任务 4</text>
+<text x="374.5" y="707" text-anchor="middle" font-size="10" font-weight="400" fill="#57534e">接收 8 机结果</text>
+<line x1="374.5" y1="716" x2="410" y2="766" stroke="#9a3412" stroke-width="1.4" marker-end="url(#dataflow-sum-example-merge)"/>
+<rect x="431.0" y="670" width="81" height="46" rx="8" fill="#ffedd5" stroke="#9a3412" stroke-width="1.3"/>
+<text x="471.5" y="690" text-anchor="middle" font-size="11" font-weight="600" fill="#9a3412">合并任务 5</text>
+<text x="471.5" y="707" text-anchor="middle" font-size="10" font-weight="400" fill="#57534e">接收 8 机结果</text>
+<line x1="471.5" y1="716" x2="430" y2="766" stroke="#9a3412" stroke-width="1.4" marker-end="url(#dataflow-sum-example-merge)"/>
+<rect x="528.0" y="670" width="81" height="46" rx="8" fill="#ffedd5" stroke="#9a3412" stroke-width="1.3"/>
+<text x="568.5" y="690" text-anchor="middle" font-size="11" font-weight="600" fill="#9a3412">合并任务 6</text>
+<text x="568.5" y="707" text-anchor="middle" font-size="10" font-weight="400" fill="#57534e">接收 8 机结果</text>
+<line x1="568.5" y1="716" x2="450" y2="766" stroke="#9a3412" stroke-width="1.4" marker-end="url(#dataflow-sum-example-merge)"/>
+<rect x="625.0" y="670" width="81" height="46" rx="8" fill="#ffedd5" stroke="#9a3412" stroke-width="1.3"/>
+<text x="665.5" y="690" text-anchor="middle" font-size="11" font-weight="600" fill="#9a3412">合并任务 7</text>
+<text x="665.5" y="707" text-anchor="middle" font-size="10" font-weight="400" fill="#57534e">接收 8 机结果</text>
+<line x1="665.5" y1="716" x2="470" y2="766" stroke="#9a3412" stroke-width="1.4" marker-end="url(#dataflow-sum-example-merge)"/>
+<rect x="722.0" y="670" width="81" height="46" rx="8" fill="#ffedd5" stroke="#9a3412" stroke-width="1.3"/>
+<text x="762.5" y="690" text-anchor="middle" font-size="11" font-weight="600" fill="#9a3412">合并任务 8</text>
+<text x="762.5" y="707" text-anchor="middle" font-size="10" font-weight="400" fill="#57534e">接收 8 机结果</text>
+<line x1="762.5" y1="716" x2="490" y2="766" stroke="#9a3412" stroke-width="1.4" marker-end="url(#dataflow-sum-example-merge)"/>
+<rect x="315" y="766" width="210" height="48" rx="8" fill="#ffedd5" stroke="#9a3412" stroke-width="1.3"/>
+<text x="420" y="786" text-anchor="middle" font-size="15" font-weight="600" fill="#9a3412">最终合并任务</text>
+<text x="420" y="805" text-anchor="middle" font-size="12" font-weight="400" fill="#9a3412">合并 8 个结果，输出总和</text>
+<text x="420" y="846" text-anchor="middle" font-size="15" font-weight="600" fill="#9a3412">512 个局部结果 → 64 个机器结果 → 8 个分组结果 → 1 个总和</text>
+</svg>
+<figcaption class="fig-caption">512 个任务并行计算局部和。各机器先合并本机结果。后续任务继续分层合并。最终结果依赖全部输入分区。</figcaption>
+</figure>
+
+图的上半部表示算子定义。下半部展开并行任务。**一个算子定义可以对应许多个执行实例。** 引擎把这些实例分配到不同机器。
+
+非聚合查询可以独立处理各个分区。聚合查询还需要合并局部结果。并行任务增加了图的宽度。合并步骤仍然保留了数据依赖。
+
+两张数据流图都没有反馈。它们都是 DAG。本章先讨论这种无环结构。
+
+图确定了数据路径。执行引擎还要决定谁发起下一步处理。
+
+### 3.2 拉取执行与推送执行
+
+**拉取执行（pull）：下游向上游请求数据。** 输出端先向投影算子取数。请求沿算子链逐级传到扫描算子。扫描算子读取记录。记录再沿数据路径返回下游。
+
+**推送执行（push）：上游把数据交给下游。** 扫描算子把读到的记录交给过滤算子。过滤算子把合格记录交给投影算子。投影算子再把结果交给输出端。
+
+两种方式都能执行同一张数据流图。它们决定谁发起处理。引擎另行决定线程和任务的分配。
+
+### 3.3 火山模型：用迭代器连接算子
+
+火山模型（Volcano model）是拉取执行的典型实现。每个算子提供三个接口：
+
+- `open()` 初始化执行状态。
+- `next()` 返回下一条结果。结果耗尽时，`next()` 报告结束。
+- `close()` 释放执行资源。
+
+输出端调用投影算子的 `next()`。投影算子向过滤算子取数。过滤算子持续向扫描算子取数。它只返回满足条件的记录。
+
+调用从下游走向上游。记录从上游返回下游。一个线程就能沿调用栈执行这条算子链。下游通过同步调用链请求数据。下游停止取数后，上游就停止生产。
+
+引擎可以通过统一接口替换算子实现。数据库引擎常用这套接口执行 SQL。接口本身不限定算子的计算内容。[Volcano 原论文](https://awoc.wolski.fi/dlib/parallel-query/Graefe94-Volcano.pdf)也明确讨论了对不同数据模型的支持。
+
+### 3.4 推送模型：由上游驱动计算
+
+推送模型（push-based）由上游驱动执行。引擎从扫描算子启动处理。下游算子提供接收记录的操作。这里用 `consume(record)` 表示这个操作。
+
+继续使用第 3.1 节的非聚合查询：
+
+```text
+扫描算子：
+  逐条读取订单
+  调用过滤算子.consume(订单)
+
+过滤算子.consume(订单)：
+  如果订单金额不低于 100：
+    调用投影算子.consume(订单)
+
+投影算子.consume(订单)：
+  输出订单号
+```
+
+上游算子触发下游算子的处理。记录也沿相同方向传递。一个线程就能完成这条调用链。
+
+对于前面的聚合查询，聚合算子逐条更新累计值。输入结束时，上游发送结束通知。聚合算子随后输出最终汇总值。
+
+引擎可以通过函数调用实现 `consume(record)`。编译型引擎还可以把这条算子链合入同一段循环。HyPer 采用了这种推送式处理。参见 [Neumann 的查询编译论文](https://www.vldb.org/pvldb/vol4/p539-neumann.pdf)。
+
+### 3.5 流水线与流水线阻断点
+
+拉取执行和推送执行都可以形成流水线。
+
+扫描、过滤和投影通常可以逐条传递记录。引擎可以把相邻的这些算子组成一条**流水线（pipeline）**。流水线内部不必保存整份中间结果。
+
+有些算子必须先准备足够的输入。全量排序算子先收齐输入。随后，排序算子开始输出有序记录。常规哈希连接算子先构建哈希表。随后，哈希连接算子开始探测。这些等待边界形成**流水线阻断点（pipeline breaker）**。
+
+引擎在流水线阻断点保存中间数据。这个过程称为物化。后续阶段读取物化后的数据。引擎可以在内存或磁盘中保存数据。
+
+下面的执行计划包含连接和排序。哈希连接算子先关联订单与客户。排序算子按客户排列关联结果。分组汇总算子再逐组计算订单总额。
 
 <figure class="fig-card fig-card--dense">
-<svg class="fig-svg" viewBox="0 0 800 440" role="img" aria-label="左：算子树，HashBuild 与 Sort 标为 breaker，切口画在 breaker 处；右：三段 pipeline 通过哈希表与有序数据交接，编号表示执行阶段而非固定线程">
+<svg class="fig-svg" viewBox="0 0 800 440" role="img" aria-label="左：构建哈希表与排序 形成流水线阻断点；右：三条流水线通过哈希表与有序数据交接，编号表示执行阶段">
 <defs>
 <marker id="fig1-idle" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#a8a29e"/></marker>
 <marker id="fig1-orange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#9a3412"/></marker>
 </defs>
-<text x="195" y="28" text-anchor="middle" class="t-title" fill="#9a3412">计划树：breaker 在哪里，切分就在哪里</text>
-<text x="195" y="46" text-anchor="middle" class="t-sub">数据自下而上流动，碰到 breaker 就物化</text>
-<text x="592" y="28" text-anchor="middle" class="t-title" fill="#9a3412">执行视图：每条 pipeline 一个线程</text>
-<text x="592" y="46" text-anchor="middle" class="t-sub">物化点是流水线之间的交接</text>
+<text x="195" y="28" text-anchor="middle" class="t-title" fill="#9a3412">算子树：阻断点划分流水线</text>
+<text x="195" y="46" text-anchor="middle" class="t-sub">数据自下而上传递，在阻断点保存</text>
+<text x="592" y="28" text-anchor="middle" class="t-title" fill="#9a3412">执行过程：三条流水线依次推进</text>
+<text x="592" y="46" text-anchor="middle" class="t-sub">哈希表与有序数据连接各个阶段</text>
 <line x1="390" y1="20" x2="390" y2="420" stroke="#e8e0d4" stroke-width="1" stroke-dasharray="2 4"/>
 <g stroke="#a8a29e" stroke-width="1.5" fill="none">
 <line x1="135" y1="336" x2="135" y2="306" marker-end="url(#fig1-idle)"/>
@@ -265,13 +687,13 @@ sum8(a, b, c, d, e, f, g, h)
 <line x1="195" y1="132" x2="195" y2="102" marker-end="url(#fig1-idle)"/>
 </g>
 <g>
-<rect x="147" y="64" width="96" height="34" rx="9" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.4"/><text x="195" y="85" text-anchor="middle" class="t-label">汇总</text>
-<rect x="147" y="132" width="96" height="34" rx="9" fill="#ffedd5" stroke="#9a3412" stroke-width="1.5"/><text x="195" y="153" text-anchor="middle" class="t-label">Sort</text>
-<rect x="147" y="200" width="96" height="34" rx="9" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.4"/><text x="195" y="221" text-anchor="middle" class="t-label">HashJoin</text>
-<rect x="87" y="268" width="96" height="34" rx="9" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.4"/><text x="135" y="289" text-anchor="middle" class="t-label">Filter</text>
-<rect x="237" y="268" width="96" height="34" rx="9" fill="#ffedd5" stroke="#9a3412" stroke-width="1.5"/><text x="285" y="289" text-anchor="middle" class="t-label">HashBuild</text>
-<rect x="87" y="336" width="96" height="34" rx="9" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.4"/><text x="135" y="357" text-anchor="middle" class="t-label">Scan·orders</text>
-<rect x="237" y="336" width="96" height="34" rx="9" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.4"/><text x="285" y="357" text-anchor="middle" class="t-label">Scan·cust</text>
+<rect x="147" y="64" width="96" height="34" rx="9" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.4"/><text x="195" y="85" text-anchor="middle" class="t-label">分组汇总</text>
+<rect x="147" y="132" width="96" height="34" rx="9" fill="#ffedd5" stroke="#9a3412" stroke-width="1.5"/><text x="195" y="153" text-anchor="middle" class="t-label">排序</text>
+<rect x="147" y="200" width="96" height="34" rx="9" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.4"/><text x="195" y="221" text-anchor="middle" class="t-label">哈希连接</text>
+<rect x="87" y="268" width="96" height="34" rx="9" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.4"/><text x="135" y="289" text-anchor="middle" class="t-label">过滤</text>
+<rect x="237" y="268" width="96" height="34" rx="9" fill="#ffedd5" stroke="#9a3412" stroke-width="1.5"/><text x="285" y="289" text-anchor="middle" class="t-label">构建哈希表</text>
+<rect x="87" y="336" width="96" height="34" rx="9" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.4"/><text x="135" y="357" text-anchor="middle" class="t-label">扫描订单</text>
+<rect x="237" y="336" width="96" height="34" rx="9" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.4"/><text x="285" y="357" text-anchor="middle" class="t-label">扫描客户</text>
 </g>
 <g stroke="#9a3412" stroke-width="2" stroke-dasharray="7 5" fill="none">
 <line x1="135" y1="115" x2="255" y2="115"/>
@@ -280,29 +702,29 @@ sum8(a, b, c, d, e, f, g, h)
 <text x="263" y="119" class="t-micro" fill="#9a3412">物化：有序数据</text>
 <text x="290" y="242" class="t-micro" fill="#9a3412">物化：哈希表</text>
 <rect x="30" y="398" width="16" height="16" rx="4" fill="#ffedd5" stroke="#9a3412" stroke-width="1.2"/>
-<text x="54" y="411" class="t-sub">pipeline breaker：数据在此物化，流水线在此断开</text>
+<text x="54" y="411" class="t-sub">阻断点：引擎在此保存数据</text>
 <g>
 <rect x="405" y="64" width="375" height="64" rx="10" fill="#f6f1e7" stroke="#e8e0d4"/>
 <text x="417" y="82" class="t-micro" fill="#9a3412" font-weight="700">P1 · 阶段 1</text>
-<rect x="417" y="90" width="82" height="26" rx="7" fill="#ffffff" stroke="#d6d3d1"/><text x="458" y="107" text-anchor="middle" class="t-label">Scan·cust</text>
+<rect x="417" y="90" width="82" height="26" rx="7" fill="#ffffff" stroke="#d6d3d1"/><text x="458" y="107" text-anchor="middle" class="t-label">扫描客户</text>
 <line x1="499" y1="103" x2="509" y2="103" stroke="#a8a29e" stroke-width="1.5" marker-end="url(#fig1-idle)"/>
 <rect x="511" y="90" width="96" height="26" rx="7" fill="#ffffff" stroke="#d6d3d1"/><text x="559" y="107" text-anchor="middle" class="t-label">构建哈希表</text>
 <line x1="607" y1="103" x2="617" y2="103" stroke="#a8a29e" stroke-width="1.5" marker-end="url(#fig1-idle)"/>
 <rect x="619" y="90" width="124" height="26" rx="7" fill="#ffedd5" stroke="#9a3412" stroke-width="1.3"/><text x="681" y="107" text-anchor="middle" class="t-label">哈希表 · 物化</text>
 <rect x="405" y="184" width="375" height="64" rx="10" fill="#f6f1e7" stroke="#e8e0d4"/>
 <text x="417" y="202" class="t-micro" fill="#9a3412" font-weight="700">P2 · 阶段 2</text>
-<rect x="417" y="210" width="88" height="26" rx="7" fill="#ffffff" stroke="#d6d3d1"/><text x="461" y="227" text-anchor="middle" class="t-label">Scan·orders</text>
+<rect x="417" y="210" width="88" height="26" rx="7" fill="#ffffff" stroke="#d6d3d1"/><text x="461" y="227" text-anchor="middle" class="t-label">扫描订单</text>
 <line x1="505" y1="223" x2="515" y2="223" stroke="#a8a29e" stroke-width="1.5" marker-end="url(#fig1-idle)"/>
-<rect x="517" y="210" width="64" height="26" rx="7" fill="#ffffff" stroke="#d6d3d1"/><text x="549" y="227" text-anchor="middle" class="t-label">Filter</text>
+<rect x="517" y="210" width="64" height="26" rx="7" fill="#ffffff" stroke="#d6d3d1"/><text x="549" y="227" text-anchor="middle" class="t-label">过滤</text>
 <line x1="581" y1="223" x2="591" y2="223" stroke="#a8a29e" stroke-width="1.5" marker-end="url(#fig1-idle)"/>
-<rect x="593" y="210" width="64" height="26" rx="7" fill="#ffffff" stroke="#d6d3d1"/><text x="625" y="227" text-anchor="middle" class="t-label">⋈ probe</text>
+<rect x="593" y="210" width="64" height="26" rx="7" fill="#ffffff" stroke="#d6d3d1"/><text x="625" y="227" text-anchor="middle" class="t-label">探测连接</text>
 <line x1="657" y1="223" x2="667" y2="223" stroke="#a8a29e" stroke-width="1.5" marker-end="url(#fig1-idle)"/>
 <rect x="669" y="210" width="98" height="26" rx="7" fill="#ffedd5" stroke="#9a3412" stroke-width="1.3"/><text x="718" y="227" text-anchor="middle" class="t-label">有序数据·物化</text>
 <rect x="405" y="304" width="375" height="64" rx="10" fill="#f6f1e7" stroke="#e8e0d4"/>
 <text x="417" y="322" class="t-micro" fill="#9a3412" font-weight="700">P3 · 阶段 3</text>
 <rect x="417" y="330" width="104" height="26" rx="7" fill="#ffffff" stroke="#d6d3d1"/><text x="469" y="347" text-anchor="middle" class="t-label">读回有序数据</text>
 <line x1="521" y1="343" x2="531" y2="343" stroke="#a8a29e" stroke-width="1.5" marker-end="url(#fig1-idle)"/>
-<rect x="533" y="330" width="64" height="26" rx="7" fill="#ffffff" stroke="#d6d3d1"/><text x="565" y="347" text-anchor="middle" class="t-label">汇总</text>
+<rect x="533" y="330" width="64" height="26" rx="7" fill="#ffffff" stroke="#d6d3d1"/><text x="565" y="347" text-anchor="middle" class="t-label">分组汇总</text>
 <line x1="597" y1="343" x2="607" y2="343" stroke="#a8a29e" stroke-width="1.5" marker-end="url(#fig1-idle)"/>
 <rect x="609" y="330" width="64" height="26" rx="7" fill="#ffffff" stroke="#d6d3d1"/><text x="641" y="347" text-anchor="middle" class="t-label">输出</text>
 </g>
@@ -310,48 +732,87 @@ sum8(a, b, c, d, e, f, g, h)
 <line x1="681" y1="120" x2="625" y2="209" marker-end="url(#fig1-orange)"/>
 <path d="M 718 240 L 718 274 L 469 274 L 469 329" marker-end="url(#fig1-orange)"/>
 </g>
-<text x="694" y="160" class="t-micro" fill="#9a3412">probe 前必须先建好</text>
+<text x="694" y="160" class="t-micro" fill="#9a3412">探测前必须先建好</text>
 <text x="594" y="268" text-anchor="middle" class="t-micro" fill="#9a3412">交给 P3 扫描读回</text>
 <g stroke="#9a3412" stroke-width="1.5" fill="none">
 <line x1="405" y1="388" x2="780" y2="388"/>
 <line x1="405" y1="382" x2="405" y2="394"/>
 <line x1="780" y1="382" x2="780" y2="394"/>
 </g>
-<text x="592" y="410" text-anchor="middle" class="t-sub">三段 pipeline 属于同一次查询；线程与计划对象可以由运行时复用</text>
+<text x="592" y="410" text-anchor="middle" class="t-sub">三条流水线属于同一次查询，引擎负责分配线程</text>
 </svg>
-<figcaption class="fig-caption">左：一棵执行计划树，橙色节点是 pipeline breaker——hash join 的 build 侧与 Sort，数据必须在这里物化才能继续向上。右：沿两个 breaker 切开，得到三条 pipeline，物化点是流水线之间的交接。这是阶段划分，不要求一段绑定一个独占线程，也不要求三段同时开始、同时结束。</figcaption>
+<figcaption class="fig-caption">左：橙色节点形成流水线阻断点。右：P1 构建哈希表。P2 先完成连接。P2 再完成排序。P3 读取有序数据。它逐组汇总订单金额。哈希表和有序数据连接三条流水线。引擎决定线程分配。</figcaption>
 </figure>
 
-并行化也在同一框架里完成：Graefe 把 shuffle 包装成一个普通算子（Exchange）插进树里，树内走流水线，跨 exchange 换线程、换机器。这使数据处理逻辑与跨进程分区、传输能够分别实现。现代引擎还会使用向量化、编译执行和任务调度等机制，具体 pipeline 与线程的对应需要结合运行时来看。
+引擎可以用一个线程执行一条流水线。引擎也可以为不同分区创建流水线实例。流水线的划分并不直接规定线程数量。
 
-### 3.2 DAG、Pipeline、Dataflow 分别描述什么
+### 3.6 数据分区与并行执行
 
-数据库和流系统都会用到这三个词。把它们放到同一条执行路径上，分工就清楚了。
+执行引擎还需要把工作分给多个任务。对于扫描、过滤和投影，引擎可以先划分输入。它为每个分区创建任务。不同任务便能并行处理各自的记录。
 
-**DAG 描述依赖结构。** 节点表示所选粒度上的计算，边表示谁需要谁的数据。它限制合法的执行顺序，但不会替我们决定每个节点分配多少线程、放在哪台机器。
+连接和聚合可能还需要重新分区。引擎需要把相关记录送到同一任务。Volcano 系统使用 **Exchange 算子**处理进程之间的数据传输。Exchange 算子也支持数据分区。
 
-**Pipeline 描述连续处理的执行片段。** scan、filter、project 可以把数据逐步传下去；阻塞式算子要求先准备足够的输入，再进入下一阶段。跨线程或网络的 exchange 划出通信边界，但通信边界不一定要求把全量数据物化，流水传输也可以跨越它。
+进程内的下游算子通过 `next()` 拉取数据。发送进程向接收进程推送数据。Exchange 算子连接这两种执行方式。它把数据处理逻辑与进程间通信分开。参见 [Volcano 的并行执行设计](https://awoc.wolski.fi/dlib/parallel-query/Graefe94-Volcano.pdf)。
 
-**Dataflow 描述计算与数据路径的组织。** 运行时把算子连接起来，沿边传递数据并满足依赖。它可以采用需求驱动，也可以采用数据到达后激活算子的调度方式；Volcano 的 exchange 就连接了进程内的需求驱动与进程间的数据驱动。带反馈的 dataflow 图也可以表达循环，这部分放到第二篇。
+Exchange 算子划出通信边界。它可以持续传送已经产生的记录。通信边界因此不一定形成流水线阻断点。
 
-| 观察层次 | 要回答的问题 | 典型内容 |
-|---|---|---|
-| 依赖结构 | 哪些工作必须先后发生 | DAG、算子树、数据依赖边 |
-| 执行片段 | 哪些算子可以连续处理，在哪里等待或交接 | pipeline、物化点、exchange |
-| 执行驱动 | 谁发起下一步处理 | `next()` 调用、消息就绪、运行时调度 |
+Flink 的算子链也体现了这种分工。Flink 可以用同一任务线程执行多个算子。不同任务通过通道传递数据。参见 [Flink 的任务与算子链](https://nightlies.apache.org/flink/flink-docs-release-2.0/docs/concepts/flink-architecture/#tasks-and-operator-chains)。
 
-以 Flink 的 operator chaining 为例，多个算子实例可以串在同一个 task 的线程中，跨 task 再通过通道传递数据。它是具体系统对执行片段和调度边界的选择，不能反过来把所有 pipeline 都定义成一条线程。参见 [Flink 的任务与算子链](https://nightlies.apache.org/flink/flink-docs-release-2.0/docs/concepts/flink-architecture/#tasks-and-operator-chains)。
-
-到这里，可以沿三个层次读一张执行计划：先看依赖限制，再看数据在哪里等待或交接，最后看运行时如何分配和驱动工作。增加机器主要改变最后一层；改写算法还可能改变第一层的关键路径。
+DAG 规定任务需要等待哪些输入。引擎决定任务使用哪些线程和机器。增加机器无法消除任务之间的依赖。
 
 
-## 4. 下一步：当计算需要重复执行
+## 4. 从静态计算图到动态计算图
 
-前缀和按跨度 1、2、4 依次合并时，已经出现了重复应用同一条规则的过程。若长度由运行时输入决定，程序可以把这个过程写成循环；更一般的可达性查询，还要依据当前发现的结果决定是否继续。
+### 4.1 静态图固定算子的表达能力
 
-DAG 给出某一层次上的依赖结构，运行时据此安排并行。把循环本身打开后，还需要说明下一轮接收什么，以及如何判断后续工作已经结束。输入持续变化时，这个判断又必须落到一个个可关闭的逻辑范围上。
+第三章说明了算子怎样执行。接下来，我们讨论这些算子能够表达什么。
 
-[第二篇：循环与无界计算]({{ '/2026/10/28/stream-lecture-2-loops-and-unbounded-computation/' | relative_url }})从持股查询开始，逐步讨论同步轮次、逻辑时间、capability、frontier，再追踪持续新增与删除怎样通过循环改变结果。
+静态计算图预先规定节点与依赖。这个定义只约束图的结构。它没有限制节点内部的计算。一个节点也可以封装完整的递归程序。
+
+要讨论表达边界，我们先限定一种算子语言。它采用集合语义。它只包含经典关系代数运算：选择、投影、连接、并、差等。查询用固定、有限的表达式组合这些运算。输入规模不会改变表达式的结构。
+
+**经典关系代数与域独立的一阶关系演算等价。** 两者能够表达同一类查询。这里的关系代数表达式都是固定、有限的。参见《数据库基础》[定理 5.3.10](https://webdam.di.ens.fr/Alice/pdfs/Chapter-5.pdf)。
+
+**一阶关系查询按固定的表达式结构计算。每层运算产生中间结果。后续运算使用这些结果。**
+
+**一阶关系查询不提供递归机制。** 这里的递归机制允许程序重复应用同一套规则。程序把推导结果送回规则。程序再次应用规则。结果稳定后，程序停止。
+
+上述等价关系只覆盖非递归 SQL 中的经典关系代数部分。现代 SQL 还包含聚合、重复行和自定义函数等特性。我们需要分别分析这些特性。
+
+改用拉取执行或推送执行，不会改变这组运算的表达能力。火山模型提供了执行接口。算子及其组合规则决定查询能够表达什么。
+
+### 4.2 有限组合在哪里遇到边界
+
+假设一张表记录公司之间的直接持股关系。一次自连接可以找到两层持股关系。再连接一次，可以找到三层关系。
+
+现在，查询要求找出所有间接关系。公司之间可能隔着任意多层。一个预先写定的连接链只能覆盖有限层数。对任意大小的输入，经典关系代数无法表达一般的可达性查询。参见《数据库基础》[第十二章](https://webdam.di.ens.fr/Alice/pdfs/Chapter-12.pdf)。
+
+程序需要一种重复应用规则的方式。程序每轮根据已有关系推导新关系。程序把新关系加入结果。没有新关系时，计算到达不动点。
+
+已知层数上限时，程序可以提前展开有限轮计算。这会得到针对该上限的表达式。递归查询可以保持同一份定义。程序根据每轮结果决定是否继续。
+
+### 4.3 动态计算图怎样展开
+
+第一章的前缀和算法按跨度 1、2、4 依次合并。输入规模确定后，轮数也随之确定。程序可以提前展开全部轮次。这些轮次构成静态计算图。
+
+对于上面的可达性算法，程序会检查每轮结果。若本轮产生新关系，程序就执行下一轮。我们也可以随着执行逐步展开依赖：
+
+```text
+第 1 轮计算 ──结果 1──→ 第 2 轮计算 ──结果 2──→ …
+```
+
+每个节点表示某一轮的执行。每条边表示轮次之间的数据依赖。本系列把这种随执行逐步展开的图称为**动态计算图**。这里的节点表示执行实例。程序可以在不同轮次复用同一组算子。
+
+引擎也可以用带反馈边的静态算子图描述同一计算。反馈边把本轮结果送回下一轮。我们可以分别画出每轮执行。各轮之间的依赖仍然向前延伸。有限次迭代会展开成有限的 DAG。
+
+因此，静态或动态描述节点与依赖何时确定。有环或无环描述图的依赖结构。讨论时还要说明节点表示算子，还是一次执行。
+
+### 4.4 下一篇：循环与持续输入
+
+循环增加了轮次之间的依赖。持续输入意味着输入源不断提供新数据。引擎也能用固定的无环算子图处理持续输入。这是两个需要分别讨论的问题。
+
+[第二篇：循环与无界计算]({{ '/2026/10/28/stream-lecture-2-loops-and-unbounded-computation/' | relative_url }})从持股查询开始。它先讨论轮次与不动点。随后，它引入逻辑时间。它用 capability 和 frontier 判断计算进度。最后，它追踪持续新增与删除怎样改变循环结果。
+
 
 ## 延伸阅读
 
