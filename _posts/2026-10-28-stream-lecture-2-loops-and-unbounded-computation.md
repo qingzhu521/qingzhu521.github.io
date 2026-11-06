@@ -517,7 +517,10 @@ reach = iterate(start, known =>
 1. 进入 `iterate` 时，输入消息的时间戳被压入 iteration 坐标，初值为 0；
 2. 每一轮，循环体的输出沿回边送回输入，iteration 加一；
 3. 本例的候选公司有限，循环规则单调扩展可达集合，配合 `distinct` 最终到达不动点；
-4. 循环结果会在计算过程中经 `leave` 持续输出；当相关 frontier 越过这些 iteration，并最终让外层 frontier 越过该 epoch 时，下游才确认此前收到的增量已经完整，不会再被修改。
+4. `leave` 持续输出循环结果，并剥去该层的 iteration 坐标。
+5. 下游可以先处理这些更新。输出 frontier 越过该 epoch 后，下游才确认该 epoch 的输出完整。
+
+**下一轮可以先算，完成进度不能提前推进。** §3.4.2 用两层循环说明这个区别。
 
 对外部世界，整个 `iterate` 暴露为一个可组合的集合变换：输入是某个 epoch 上的一批起始公司，输出是同一 epoch 上的穿透结果。**轮次被完整地封装在算子内部**——这是 PointStamp 的回报：循环不再是图的特殊形状，而是一次可以组合的函数调用。第一篇 §2 讨论了计算图与函数表达式的对应，到这里，递归函数也被收编了进来。
 
@@ -828,6 +831,25 @@ B 可以保留输出端口的 `cap@5`。输入 frontier 推进到 `{6}` 后，B 
 </svg>
 <figcaption class="fig-caption">数据离开循环必须经过独立的 <code>leave_inner</code> 或 <code>leave_outer</code>，不会从入口“倒着出去”。内层回边只增加 <code>i</code>，外层回边先弹出 <code>i</code>、增加 <code>o</code>，再次进入内层时再追加新的 <code>i=0</code>。</figcaption>
 </figure>
+
+**`iterate` 怎样剥去轮次并报告进度。** 内层时间写作 `(e,o,i)`。`e` 是输入时间，`o` 是外层轮次，`i` 是内层轮次。`leave_inner` 输出记录时，剥去 `i`，得到 `(e,o)`。运行时向外报告进度时，也做这次转换。参见 [`to_outer` 的实现](https://github.com/TimelyDataflow/timely-dataflow/blob/eba4ae5298442cc2475e5ef82277bb135e4a7ea4/timely/src/order.rs#L145-L154)和 [scope 向外报告进度的代码](https://github.com/TimelyDataflow/timely-dataflow/blob/eba4ae5298442cc2475e5ef82277bb135e4a7ea4/timely/src/progress/subgraph.rs#L511-L518)。
+{: #iterate-frontier-mechanism }
+
+因此，内层的 `(1,1,4)`、`(1,1,5)` 都向外表示：`(1,1)` 仍可能有输出。只要相关消息或 capability 仍能影响出口，外层就不能确认 `(1,1)` 的输出完整。第 2 轮可以先处理已经收到的更新。等第 1 轮不再可能产生相关输出，frontier 才能确认第 1 轮完成。
+
+**P 的 frontier 出现 `(2,1)`，说明什么？** 固定输入时间 `e=1`。下面暂时省略 `e`，只写 `(o,i)`。观察图中的内层入口 P。两条回边汇入 P 的同一个输入端口。`enter_inner` 到 P 的路径不推进时间。
+
+只要第 1 轮还有能沿外层回边影响 P 的工作，进度跟踪就必须计入这条路径：
+
+<pre><code>(1,x) --leave_inner--> 1 --外层回边 +1--> 2 --enter_inner--> (2,0) → P</code></pre>
+
+P 的 frontier 因此必须保留某个 `f ≤ (2,0)`。又因为 `(2,0) ≤ (2,1)`，`(2,1)` 会被这个更早的点覆盖，不能留在 antichain 中。这是运行时对进度的约束。消息不必先绕完这条路径。
+
+**因此，在本图的 P 上，frontier 一旦包含 `(2,1)`，第 1 轮就已没有仍能沿这条路径影响 P 的 `(1,x)` 消息或 capability。** `(2,1)` 自己仍在边界上，尚未完整。这个结论只覆盖能影响 P 的工作。
+
+后续算子要按各自的输入端口判断。如果 P 后面还有一次内层轮次加一，候选 `(2,0)` 会变成 `(2,1)`。那个端口的 frontier 即使包含 `(2,1)`，第 1 轮也可能仍在运行。因此，不能把 P 的结论直接套到任意下游端口。
+
+下面恢复完整的三维时间。
 
 假设工作停在内层结果 <code>(1,2,4)</code> 上。沿图走路径，看它以后还可能变成哪些时间戳：
 
@@ -1389,7 +1411,7 @@ move |(input1, frontier1), (input2, frontier2), output| { ... }
 <figcaption class="fig-caption">antichain 的 anti 不是反向，而是这些时间用 <code>Product::less_equal</code> 连不成一条链。紫点 <code>(1,2,1)</code> 来自工作自己，<code>(1,3,0)</code> 来自父层经 <code>to_inner</code> 注入的像，两者都是端口 P 上的候选；它们有因果联系（像由这份工作撑起），但在 P 上挡住的区域不同，缺一不可。右上是可比情形的对照：<code>(1,2,0)</code> 与 <code>(1,3,0)</code> 逐坐标可比，只留更小的 <code>(1,2,0)</code>。</figcaption>
 </figure>
 
-固定 <code>e = 1</code> 的网格里，边界没有任何 <code>(1,1,x)</code> 形式的点：外层第 1 轮已经全部关闭，frontier 只列还没关闭的链头。
+固定 <code>e = 1</code> 时，图中的 frontier 为 <code>{(1,2,1), (1,3,0)}</code>。按 §3.4.2 中 P 的入口路径，这说明外层第 1 轮已没有仍能影响 P 的消息或 capability。否则，第 1 轮会贡献不大于 <code>(1,2,0)</code> 的候选，<code>(1,2,1)</code> 就不能留在 frontier 中。边界上的 <code>(1,2,1)</code> 自己仍未完整。
 
 **frontier 的判据以端口为单位。** 对端口 P 上的目标时间 t，判据只有一句：存在 f ∈ frontier(P) 使 f ≤ t，t 就还可能再来数据，不能定稿；不存在这样的 f，该端口在 t 上的数据就已收齐。代码对应 <code>Antichain::less_equal(&t)</code>，实现是 <code>elements.iter().any(|x| x.less_equal(&t))</code>：集合里任意一个点 ≤ t 即成立。这个查询的主语是**一个端口**：每个输入端口各有一条自己的 antichain，各查各的。join 的两个输入端口是两条独立的 antichain，分别查询再取“且”（3.4.3），运行时不会把两侧合并成一条；唯一发生合并的情形是多个来源汇入**同一个**端口，此时它们的候选并入该端口这同一条 antichain。
 
