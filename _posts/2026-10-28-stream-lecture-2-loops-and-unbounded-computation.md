@@ -639,11 +639,13 @@ capability 简称 **cap**。算子持有 `cap@5`，就保留了发送时间 5 �
 
 </details>
 
-### 3.3 frontier：数据完整性的边界
+### 3.3 当前系统怎么知道含有 pointstamp 的答案可用了 {#frontier-answer-availability}
 
-**frontier 标出某个端口的数据完整性边界。** 运行时根据 cap 和未消费消息维护它。运行时还会沿数据流路径换算时间。
+**系统用 frontier 区分已经完整的答案与仍可能变化的答案。** pointstamp 标出逻辑时间和数据流位置。确认答案完整时，应观察结果输出端口的 frontier。这里的“可用”指可以作为该时间的完整答案使用。尚未完整的中间结果仍可提前参与计算。
 
-先看 `A → B`。假设只有这条通路，传输不改变时间。下面列出进度汇总后的状态。
+运行时根据 cap 和未消费消息维护 frontier。运行时还会沿数据流路径换算时间。
+
+先看 `A → B` 的输入进度。假设只有这条通路，传输不改变时间。下面列出进度汇总后的状态。
 
 | 状态 | B 的输入 frontier | 时间 5 是否收齐 |
 | --- | --- | --- |
@@ -958,7 +960,7 @@ P 的 frontier 由“所有还可能到达 P 的时间”的最小候选组成�
 <marker id="pc-purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#6d28d9"/></marker>
 <marker id="pc-gray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1.5 L9 5 L2 8.5 Z" fill="#57534e"/></marker>
 </defs>
-<text x="28" y="28" class="t-title">为什么换算后的 (1,3,0) 挡住 (1,3,1)：先走路径，再比坐标</text>
+<text x="28" y="28" class="t-title">为什么换算后的 (1,3,0) 挡住 (1,3,1)</text>
 
 <rect x="28" y="52" width="300" height="268" rx="13" fill="#fafaf9" stroke="#e7e5e4" stroke-width="1.2"/>
 <text x="46" y="78" class="t-sub" font-weight="700">1　沿路径换算到同一个端口 P</text>
