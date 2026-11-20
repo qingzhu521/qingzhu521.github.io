@@ -1,0 +1,32 @@
+#recursive-correction-demo { margin: 28px 0; padding: 22px; border: 1px solid #e8e0d4; border-radius: 12px; background: #fffdf8; color: #1c1917; font-size: 15px; line-height: 1.65; }
+#recursive-correction-demo [hidden] { display: none !important; }
+#recursive-correction-demo h4 { margin: 0 0 8px; font-size: 19px; }
+#recursive-correction-demo .rc-intro { color: #57534e; }
+#recursive-correction-demo .rc-steps, #recursive-correction-demo .rc-controls { display: flex; flex-wrap: wrap; gap: 8px; }
+#recursive-correction-demo button { font: inherit; line-height: 1.5; color: #1c1917; background: #fff; border: 1px solid #d6d3d1; border-radius: 6px; padding: 8px 12px; cursor: pointer; }
+#recursive-correction-demo button:hover:not(:disabled) { background: #f6f1e7; }
+#recursive-correction-demo button[aria-pressed="true"] { border-color: #0f766e; background: #ccfbf1; color: #134e4a; }
+#recursive-correction-demo button:focus-visible { outline: 2px solid #0f766e; outline-offset: 3px; }
+#recursive-correction-demo button:disabled { opacity: .45; cursor: default; }
+#recursive-correction-demo .rc-heading { margin: 20px 0 16px; }
+#recursive-correction-demo .rc-heading strong { display: block; font-size: 17px; }
+#recursive-correction-demo .rc-heading p { margin: 6px 0 0; }
+#recursive-correction-demo .rc-histories { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+#recursive-correction-demo .rc-history { min-width: 0; padding: 14px; background: #fff; border: 1px solid #e8e0d4; border-radius: 8px; }
+#recursive-correction-demo h5 { font-size: 15px; margin: 0 0 12px; }
+#recursive-correction-demo table { display: table; width: 100%; margin-bottom: 12px; border: 0; font-size: 14px; }
+#recursive-correction-demo th, #recursive-correction-demo td { padding: 7px 8px; border: 0; border-bottom: 1px solid #efe8db; }
+#recursive-correction-demo th { background: #f6f1e7; }
+#recursive-correction-demo .rc-counted td { background: #f0fdfa; }
+#recursive-correction-demo .rc-excluded td { background: #fff; color: #57534e; }
+#recursive-correction-demo td:first-child { font-family: ui-monospace, "SF Mono", Menlo, monospace; white-space: nowrap; }
+#recursive-correction-demo .rc-history p { margin: 0; }
+#recursive-correction-demo .rc-equation { padding: 14px; margin: 16px 0 10px; background: #f6f1e7; border-left: 3px solid #0f766e; font-weight: 600; }
+#recursive-correction-demo .rc-result { margin: 0 0 18px; }
+#recursive-correction-demo .rc-footnote { font-size: 13px; color: #57534e; margin: 14px 0 0; }
+@media (max-width: 680px) {
+  #recursive-correction-demo { padding: 14px; }
+  #recursive-correction-demo .rc-histories { grid-template-columns: 1fr; }
+  #recursive-correction-demo .rc-history { padding: 12px; }
+  #recursive-correction-demo .rc-steps button { flex: 1 1 42%; }
+}

@@ -40,7 +40,7 @@ tags: [并行计算, dag, 执行模型]
 }
 </style>
 
-> 系列阅读：[一：并行与 DAG]({{ '/2026/07/27/stream-lecture-1-dag-and-loop/' | relative_url }}) · [二：循环与无界计算]({{ '/2026/10/28/stream-lecture-2-loops-and-unbounded-computation/' | relative_url }}) · [三：事件时间、状态与容错]({{ '/2026/08/05/stream-lecture-2-time-state-and-fault-tolerance/' | relative_url }})
+> 系列阅读：[一：并行与 DAG]({{ '/2026/07/27/stream-lecture-1-dag-and-loop/' | relative_url }}) · [二：循环与无界计算]({{ '/2026/10/28/stream-lecture-2-loops-and-unbounded-computation/' | relative_url }}) · [三：事件时间、状态与容错]({{ '/2026/08/05/stream-lecture-2-time-state-and-fault-tolerance/' | relative_url }}) · [四：循环中的增量计算]({{ '/2026/11/09/stream-lecture-4-incremental-computation-in-loops/' | relative_url }})
 
 本文讨论一个问题：**一项计算怎样从依赖关系变成并行执行？**
 

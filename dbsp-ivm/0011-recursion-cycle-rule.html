@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN"><head><meta charset="utf-8"/><meta content="width=device-width,initial-scale=1" name="viewport"/><title>第 11 课 · 递归、不动点与 Frontier：变化如何穿过反馈环</title><style>
+:root{--bg:#f4f1eb;--paper:#fffdf8;--ink:#1c1917;--muted:#57534e;--line:#e8e0d4;--accent:#9a3412;--accent-soft:#ffedd5;--teal:#0f766e;--teal-soft:#ccfbf1;--good:#166534;--good-soft:#dcfce7;--bad:#991b1b;--bad-soft:#fee2e2;--purple:#6d28d9;--purple-soft:#ede9fe;--code:#1c1917;--shadow:0 10px 28px rgba(28,25,23,.06)}
+*{box-sizing:border-box}
+body{margin:0;color:var(--ink);font-family:"Iowan Old Style","Palatino Linotype",Palatino,"Songti SC","Noto Serif SC",serif;line-height:1.68;background:radial-gradient(900px 480px at 0 0,#ffedd5 0,transparent 55%),radial-gradient(800px 420px at 100% 10%,#ccfbf155 0,transparent 50%),var(--bg)}
+.wrap{max-width:920px;margin:0 auto;padding:36px 18px 72px}
+.eyebrow,.cite,nav,footer{margin-top:28px;color:var(--muted);font-size:.88rem;font-family:ui-sans-serif,system-ui,sans-serif}
+.eyebrow{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);font-weight:800;font-family:ui-sans-serif,system-ui,sans-serif}
+h1{font-size:clamp(1.75rem,3vw,2.35rem);line-height:1.2;margin:10px 0 12px}
+h2{margin:0 0 11px;font-size:1.25rem}
+h3{margin:20px 0 8px;font-size:1.06rem}
+p{margin:0 0 12px}
+ul,ol{margin:0 0 12px;padding-left:1.3em}
+li{margin:.3em 0}
+a{color:var(--teal)}
+.lead{color:var(--muted);font-size:1.07rem}
+.cite{font-size:.88rem;color:var(--muted)}
+section{background:var(--paper);border:1px solid var(--line);border-radius:18px;padding:22px;margin:18px 0;box-shadow:var(--shadow)}
+.callout{border-left:4px solid var(--teal);padding:12px 14px;border-radius:0 12px 12px 0;margin:14px 0;font-family:ui-sans-serif,system-ui,sans-serif;font-size:.95rem;background:var(--teal-soft)}
+.callout.warn{border-left-color:var(--accent);background:var(--accent-soft)}
+.callout.good{border-left-color:var(--good);background:var(--good-soft)}
+.callout.bad{border-left-color:var(--bad);background:var(--bad-soft)}
+.callout.purple{border-left-color:var(--purple);background:var(--purple-soft)}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.91rem}
+.formula{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--code);color:#fafaf9;padding:15px 17px;border-radius:12px;overflow:auto;margin:12px 0;line-height:1.6;white-space:pre-wrap}
+.tag{display:inline-block;background:#fff;border:1px solid var(--line);border-radius:999px;padding:2px 8px;color:var(--muted);font-size:12px;font-family:ui-sans-serif,system-ui,sans-serif}
+table{width:100%;margin:10px 0 14px;font-size:.9rem;font-family:ui-sans-serif,system-ui,sans-serif;border-collapse:collapse}
+th,td{border:1px solid var(--line);padding:8px 10px;vertical-align:top}
+th{background:#faf6f0;padding:8px 10px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.card{border:1px solid var(--line);border-radius:12px;padding:13px;background:#fffcf7}
+.card h4{margin:0 0 8px;font:800 .78rem ui-sans-serif,system-ui;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+details{border:1px solid var(--line);border-radius:12px;background:#fff;padding:11px 13px;margin:10px 0}
+summary{cursor:pointer;color:var(--accent);font-family:ui-sans-serif,system-ui,sans-serif;font-weight:700}
+.quiz{border:1px solid var(--line);border-radius:14px;padding:14px;margin:12px 0;background:#fff}
+.q{font:700 .96rem ui-sans-serif,system-ui;margin-bottom:9px}
+.options{display:grid;gap:8px}
+.opt{font:.92rem ui-sans-serif,system-ui;text-align:left;border:1px solid var(--line);background:#fff;border-radius:10px;padding:10px 12px;cursor:pointer}
+.opt:hover{border-color:var(--accent)}
+.opt.correct{background:var(--good-soft);border-color:var(--good)}
+.opt.wrong{background:var(--bad-soft);border-color:var(--bad)}
+.feedback{display:none;margin-top:9px;font:.91rem ui-sans-serif,system-ui}
+.feedback.show{display:block}
+.lab{border:2px solid var(--accent);border-radius:16px;padding:16px;background:linear-gradient(180deg,#fff7ed,#fff)}
+button.run{border:0;border-radius:10px;padding:10px 14px;background:var(--accent);color:white;font:700 .92rem ui-sans-serif,system-ui;cursor:pointer}
+.labout{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre-wrap;background:#1c1917;color:#fafaf9;border-radius:12px;padding:13px;min-height:130px;margin-top:10px}
+.nav{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;margin:24px 0;font-family:ui-sans-serif,system-ui,sans-serif}
+nav a{border:1px solid var(--line);border-radius:12px;background:#fff;padding:10px 14px;text-decoration:none;font-weight:700;color:var(--teal)}
+footer{margin-top:28px;color:var(--muted);font-size:.88rem;font-family:ui-sans-serif,system-ui,sans-serif}
+@media(max-width:740px){.grid{grid-template-columns:1fr}.wrap{padding:28px 14px 56px}section{padding:18px}table{font-size:.84rem}th,td{padding:8px;border:1px solid var(--line)}.nav{flex-direction:column}}}
+/* Mathematical subscripts/superscripts: keep indices attached to their base symbol. */
+  .formula sub, .formula sup, .mono sub, .mono sup, .math sub, .math sup{font-size:0.74em;line-height:0;position:relative;vertical-align:baseline}
+.formula sup, .mono sup, .math sup{top:-0.52em}
+.formula sub, .mono sub, .math sub{bottom:-0.20em}
+.diagram{margin:14px 0 8px;padding:14px 12px 10px;border:1px solid var(--line);border-radius:14px;background:linear-gradient(180deg,#fffefb 0%,#faf6f0 100%);overflow-x:auto}
+.diagram svg{display:block;width:100%;height:auto;max-width:100%;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.diagram-cap{margin:0 0 4px;font:.86rem ui-sans-serif,system-ui,sans-serif;color:var(--muted);line-height:1.45}
+details.ascii-ref{margin:10px 0 12px;border:1px dashed var(--line);border-radius:12px;padding:8px 12px;background:#fffcf7;font-family:ui-sans-serif,system-ui,sans-serif;font-size:.9rem}
+details.ascii-ref summary{cursor:pointer;color:var(--muted);font-weight:700}
+details.ascii-ref .formula{margin-top:10px}
+header{margin-bottom:28px}
+
+.course-byline { margin: 0 0 12px; color: var(--accent); font: 1rem/1.6 ui-sans-serif, system-ui, sans-serif; }
+</style></head><body><div class="wrap"><header><div class="eyebrow">DBSP 教学 · Lesson 0011 · 约 25–30 分钟</div><h1>递归、不动点与 Frontier：变化如何穿过反馈环</h1>
+<p class="course-byline">教程制作 · <strong>李金懋</strong>（OceanBase）</p>
+<p class="lead">本课把递归查询表示为带 Delay 的反馈电路，补上 δ₀/∫ 作为反馈环的入口与出口，并通过可达性例子说明不动点、frontier、Cycle Rule 和嵌套流。</p><p class="cite">依据：DBSP 论文关于线性、双线性、非线性算子以及递归电路的增量化定义与定理。</p></header>
+<section><h2>1. 核心问题：递归查询为什么是“带反馈的电路”？</h2><p>非递归查询从输入一路向前计算；递归查询的本轮结果会成为下一轮输入。以图可达性为例：</p><div class="formula">Reach(x,y) :- Edge(x,y).
+Reach(x,z) :- Reach(x,y), Edge(y,z).</div><p>第一条规则给出一步可达；第二条规则不断把已有路径向后延长。只有没有新路径产生时才停止。</p><div class="callout warn"><strong>推导目标：</strong>理解不动点、δ₀/∫ 边界、反馈延迟和 frontier（本轮新结果）如何配合；不把递归误解成“一次 join”。</div></section>
+<section><h2>2. 从规则写成不动点方程</h2><p>令 <span class="mono">E</span> 是边关系，<span class="mono">R</span> 是当前已知可达关系。定义一步函数：</p><div class="formula">F(R) = E ∪ (R ⋈ E)</div><p>这里 join 条件是 <span class="mono">R.to = E.from</span>，输出 <span class="mono">(R.from,E.to)</span>。最终 Reach 是满足下式的最小结果：</p><div class="formula">R* = F(R*)
+   = E ∪ (R* ⋈ E)</div><p>这叫最小不动点。计算方式从空集开始反复应用 F：</p><div class="formula">R₀ = ∅
+R₁ = F(R₀)
+R₂ = F(R₁)
+...
+直到 Rₖ₊₁ = Rₖ</div><div class="callout">“最小”意味着只包含由规则有限次推出的事实，不凭空加入其他满足方程的记录。</div></section>
+<section><h2>3. 为什么朴素迭代会重复做大量工作？</h2><p>每一轮都用完整 <span class="mono">R<sub>i</sub></span> 再 join 一次 E，会反复推导早已知道的路径。semi-naive/frontier 思路只让<strong>上一轮新增路径</strong>继续传播：</p><div class="formula">Known₀ = distinct(E)
+Frontier₀ = Known₀
+
+每轮：
+Candidatesᵢ = Frontierᵢ ⋈ E
+Knownᵢ₊₁ = distinct(Knownᵢ + Candidatesᵢ)
+Frontierᵢ₊₁ = Knownᵢ₊₁ − Knownᵢ
+
+Frontier 为空时停止。</div><div class="callout bad"><strong>为什么不能写 distinct(Candidates−Known)？</strong>同一事实在 Candidates 权重 2、Known 权重 1 时，相减再 distinct 会误判为新事实。稳健做法：先形成新完整 Known，再取 <span class="mono">Known<sub>new</sub>−Known<sub>old</sub></span>。</div><p>这和 IVM 的核心直觉一致：不要让完整历史反复穿过算子，只处理尚未传播的变化。</p></section>
+<section><h2>4. 新增一条边，逐轮产生新路径</h2><p>事务前边和旧可达闭包：</p><div class="formula">E<sub>old</sub> = {A→B, B→C, D→E}
+R<sub>old</sub> = {A→B, B→C, A→C, D→E}</div><p>本批新增边：</p><div class="formula">ΔE = {C→D}</div><p>这条边先作为新的一步路径进入 frontier，然后与旧路径和旧边继续组合：</p><table><tr><th>轮次</th><th>frontier</th><th>来源</th></tr><tr><td>0</td><td class="mono">C→D</td><td>本批新增边本身</td></tr><tr><td>1</td><td class="mono">A→D, B→D, C→E</td><td>A/B 原来能到 C；C→D 再接 D→E</td></tr><tr><td>2</td><td class="mono">A→E, B→E</td><td>新得到 A/B→D，再接旧边 D→E</td></tr><tr><td>3</td><td>∅</td><td>没有尚未见过的新路径，停止</td></tr></table><div class="formula">ΔReach = {C→D, A→D, B→D, C→E, A→E, B→E}</div><p>最终将 ΔReach 加到旧闭包，等于在新图上重新计算完整可达关系；但执行只传播由新边触发的 frontier。</p><details><summary>为什么表中轮次可能因实现调度略有合并？</summary><p>有的执行器会在一个内部批次中做更多组合，使 C→E 与 A→D 等在同一轮或相邻轮出现。关键不在轮号，而在每个新事实只作为 frontier 继续传播，直到没有新事实。</p></details></section>
+<section><h2>5. 电路里的反馈为什么需要 z⁻¹？</h2><div class="formula">             ┌───────────────┐
+base E ──→ (+) ──→ recursive body ──→ Reach
+           ▲             │
+           └── z⁻¹ ──────┘</div><p>若输出在同一个逻辑时刻无延迟地立刻反馈到输入，就会形成“当前值依赖当前值”的组合环，执行顺序和语义都不清楚。<span class="mono">z⁻¹</span> 把反馈推迟一个逻辑步：</p><ul><li>本轮读取上一轮已知状态；</li><li>本轮产生新的 frontier；</li><li>下一轮再消费这些新结果。</li></ul><div class="callout good">delay 不是为了故意变慢，而是给反馈环建立清晰的逻辑时间边界。</div></section>
+<section><h2>6. δ₀ 与 ∫：反馈环的入口与出口</h2><p>第 4 节只画了环内的 <span class="mono">z⁻¹</span>。论文 §5 还引入一对“流的边界算子”，把一次固定点计算嵌进更大的（事务）时间轴：</p><table><tr><th>算子</th><th>方向</th><th>作用</th></tr><tr><td class="mono">δ₀</td><td>标量 → 流</td><td><strong>入口</strong>：把输入关系嵌成只在内部时刻 0 非零的流，<span class="mono">δ₀(v)=[v, 0, 0, …]</span></td></tr><tr><td class="mono">∫</td><td>流 → 标量</td><td><strong>出口</strong>：对“几乎处处为零”的变化流求和，取出固定点终值</td></tr><tr><td class="mono">ℐ / 𝒟</td><td>流 ↔ 流</td><td>环内不定积分 / 微分；与出口上的定积分 <span class="mono">∫</span> 角色不同</td></tr></table><div class="callout purple"><strong>绝缘约定：</strong>良构电路用 <span class="mono">δ₀ … ∫</span> 包住一段独立内部时钟，避免内外时间轴混用（论文 Proposition 5.3 的 zero-preservation）。</div><h3>5.1 论文中的递归电路（朴素形态）</h3><p>把非递归体 <span class="mono">R</span> 提升为流算子后，按 §5.1 接成反馈环：</p>
+<figure class="diagram">
+<svg viewBox="0 0 920 280" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="rec-title rec-desc">
+  <title id="rec-title">论文 §5.1 递归 Datalog 朴素电路</title>
+  <desc id="rec-desc">I 经 δ₀ 与 ℐ 变成内部时钟上的常量流，送入 ↑R 左输入；↑distinct 的输出 o 经 z⁻¹ 回到 ↑R 右输入逐轮逼近；𝒟 吐出每轮新事实，∫ 取出固定点 O</desc>
+
+  <defs>
+    <marker id="arrR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M2 1.5 L9 5 L2 8.5 Z" fill="#57534e"/>
+    </marker>
+    <marker id="arrRA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M2 1.5 L9 5 L2 8.5 Z" fill="#9a3412"/>
+    </marker>
+    <marker id="arrRT" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M2 1.5 L9 5 L2 8.5 Z" fill="#0f766e"/>
+    </marker>
+  </defs>
+
+  <!-- outer insulation band -->
+  <rect x="120" y="36" width="680" height="200" rx="18" fill="#faf5ff" stroke="#c4b5fd" stroke-width="1.6" stroke-dasharray="6 4" opacity="0.85"/>
+  <text x="460" y="58" text-anchor="middle" font-size="11" fill="#6d28d9" font-family="ui-sans-serif,system-ui,sans-serif" font-weight="700">内部迭代时钟（δ₀ … ∫ 绝缘）</text>
+
+  <!-- I -->
+  <rect x="24" y="120" width="40" height="32" rx="8" fill="#fff" stroke="#1c1917" stroke-width="1.6"/>
+  <text x="44" y="141" text-anchor="middle" font-size="15" font-weight="700" fill="#1c1917">I</text>
+
+  <!-- δ₀ -->
+  <rect x="96" y="116" width="52" height="40" rx="10" fill="#ffedd5" stroke="#9a3412" stroke-width="1.6"/>
+  <text x="122" y="141" text-anchor="middle" font-size="16" font-weight="700" fill="#9a3412">δ₀</text>
+  <text x="122" y="172" text-anchor="middle" font-size="10" fill="#9a3412" font-family="ui-sans-serif,system-ui,sans-serif">入口</text>
+
+  <!-- ℐ -->
+  <rect x="180" y="116" width="60" height="40" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.6"/>
+  <text x="210" y="141" text-anchor="middle" font-size="16" font-weight="700" fill="#6d28d9">ℐ</text>
+  <text x="210" y="172" text-anchor="middle" font-size="9" fill="#6d28d9" font-family="ui-sans-serif,system-ui,sans-serif">常量 I 流（左输入）</text>
+
+  <!-- ↑R -->
+  <rect x="268" y="116" width="72" height="40" rx="10" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.6"/>
+  <text x="304" y="135" text-anchor="middle" font-size="15" font-weight="700" fill="#0f766e">↑R</text>
+  <text x="304" y="150" text-anchor="middle" font-size="9" fill="#0f766e">规则体</text>
+  <text x="304" y="172" text-anchor="middle" font-size="9" fill="#57534e" font-family="ui-sans-serif,system-ui,sans-serif">右输入 z⁻¹(o) · join 见 0006</text>
+
+  <!-- ↑distinct -->
+  <rect x="372" y="116" width="96" height="40" rx="10" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.6"/>
+  <text x="420" y="140" text-anchor="middle" font-size="13" font-weight="700" fill="#0f766e">↑distinct</text>
+  <text x="420" y="172" text-anchor="middle" font-size="9" fill="#57534e" font-family="ui-sans-serif,system-ui,sans-serif">输出即 o · 状态见 0007</text>
+
+  <!-- D -->
+  <rect x="500" y="116" width="48" height="40" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.6"/>
+  <text x="524" y="141" text-anchor="middle" font-size="16" font-weight="700" fill="#6d28d9">𝒟</text>
+  <text x="524" y="172" text-anchor="middle" font-size="10" fill="#6d28d9" font-family="ui-sans-serif,system-ui,sans-serif">frontier</text>
+
+  <!-- fork after ↑distinct：o 流 -->
+  <circle cx="484" cy="136" r="3.5" fill="#57534e"/>
+  <text x="484" y="118" text-anchor="middle" font-size="10" font-weight="700" fill="#57534e">o</text>
+
+  <!-- ∫ -->
+  <rect x="640" y="116" width="52" height="40" rx="10" fill="#ffedd5" stroke="#9a3412" stroke-width="1.6"/>
+  <text x="666" y="141" text-anchor="middle" font-size="18" font-weight="700" fill="#9a3412">∫</text>
+  <text x="666" y="172" text-anchor="middle" font-size="10" fill="#9a3412" font-family="ui-sans-serif,system-ui,sans-serif">出口</text>
+
+  <!-- O -->
+  <rect x="740" y="120" width="40" height="32" rx="8" fill="#fff" stroke="#1c1917" stroke-width="1.6"/>
+  <text x="760" y="141" text-anchor="middle" font-size="15" font-weight="700" fill="#1c1917">O</text>
+
+  <!-- z⁻¹ on feedback -->
+  <rect x="340" y="200" width="52" height="32" rx="8" fill="#ffedd5" stroke="#9a3412" stroke-width="1.6"/>
+  <text x="366" y="221" text-anchor="middle" font-size="14" font-weight="700" fill="#9a3412">z⁻¹</text>
+  <text x="366" y="248" text-anchor="middle" font-size="10" fill="#9a3412" font-family="ui-sans-serif,system-ui,sans-serif">严格因果 · §4</text>
+
+  <!-- forward arrows -->
+  <path d="M64 136 H96" stroke="#57534e" stroke-width="1.6" marker-end="url(#arrR)"/>
+  <path d="M148 136 H180" stroke="#9a3412" stroke-width="1.6" marker-end="url(#arrRA)"/>
+  <path d="M240 136 H268" stroke="#57534e" stroke-width="1.6" marker-end="url(#arrR)"/>
+  <path d="M340 136 H372" stroke="#57534e" stroke-width="1.6" marker-end="url(#arrR)"/>
+  <path d="M468 136 H484" stroke="#57534e" stroke-width="1.6"/>
+  <path d="M484 136 H500" stroke="#57534e" stroke-width="1.6" marker-end="url(#arrR)"/>
+  <path d="M548 136 H640" stroke="#57534e" stroke-width="1.6" marker-end="url(#arrR)"/>
+  <path d="M692 136 H740" stroke="#9a3412" stroke-width="1.6" marker-end="url(#arrRA)"/>
+
+  <!-- feedback loop: o 自分叉点下行，经 z⁻¹ 回到 ↑R 右输入 -->
+  <path d="M484 136 V216 H392" fill="none" stroke="#9a3412" stroke-width="1.6" marker-end="url(#arrRA)"/>
+  <path d="M340 216 H304 V156" fill="none" stroke="#9a3412" stroke-width="1.6" marker-end="url(#arrRA)"/>
+
+  <!-- annotation near feedback -->
+  <text x="430" y="208" font-size="10" fill="#9a3412" font-family="ui-sans-serif,system-ui,sans-serif">o 经 z⁻¹ 回到 ↑R 右输入（逐轮逼近）</text>
+
+  <!-- side note -->
+  <g transform="translate(800,48)" font-family="ui-sans-serif,system-ui,sans-serif">
+    <rect width="110" height="88" rx="10" fill="#fffdf8" stroke="#e8e0d4"/>
+    <text x="10" y="20" font-size="10" font-weight="700" fill="#1c1917">反馈走向</text>
+    <text x="10" y="38" font-size="9" fill="#57534e">o ──┬→ 𝒟 → ∫ → O</text>
+    <text x="10" y="54" font-size="9" fill="#57534e">└→ z⁻¹</text>
+    <text x="10" y="70" font-size="9" fill="#57534e">   → ↑R 右输入</text>
+  </g>
+</svg>
+<p class="diagram-cap">图：论文 §5.1 递归 Datalog 朴素电路（正确性即论文 Theorem 5.4）。δ₀ 与 ℐ 把输入 I 钉成内部时钟上的常量流（↑R 左输入）；↑R 右输入读取 z⁻¹ 延迟的上一轮近似 o；𝒟 吐出每轮新事实；∫ 在 frontier 耗尽后取出固定点 O。↑R 内 join 见第 0006 课，distinct 状态见第 0007 课。</p>
+</figure>
+<details class="ascii-ref"><summary>ASCII 对照（课内原图）</summary>
+<div class="formula">I ──→ δ₀ ──→ ℐ ──→ ↑R ──→ ↑distinct ──→ 𝒟 ──→ ∫ ──→ O
+                  ▲            │
+                  └─── z⁻¹ ◄───┘
+               （o：↑distinct 的输出流，逐轮近似）</div>
+</details>
+<p>逐节点回指（把图上的每一块钉回本课已讲概念）：</p><table><tr><th>节点</th><th>在环中做什么</th><th>回指</th></tr><tr><td class="mono">δ₀</td><td>把本批输入关系 I 送入内部迭代时钟</td><td>本节入口</td></tr><tr><td class="mono">ℐ</td><td>把 δ₀(I) 积成内部时钟上的常量 I 流，送入 ↑R 左输入（论文：左输入是常量 I 流）</td><td>第 0003 课</td></tr><tr><td class="mono">↑R</td><td>对当前近似做一步规则体（join/union 等）</td><td>§1 的 F / §0 规则</td></tr><tr><td class="mono">↑distinct</td><td>Z-set 上的集合语义，合并多重推导</td><td>第 7 课 distinct 状态</td></tr><tr><td class="mono">𝒟</td><td>本轮近似 − 上轮近似 = <strong>本轮新事实</strong></td><td>§2–3 的 frontier</td></tr><tr><td class="mono">z⁻¹</td><td>把本轮结果推迟到下一内部时刻再读</td><td>§4</td></tr><tr><td class="mono">∫</td><td>累加各轮 <span class="mono">𝒟</span> 输出，得到固定点 O</td><td>本节出口</td></tr></table><div class="callout good"><strong>读图口诀：</strong><span class="mono">δ₀</span> 开门开内部时钟 → 环内用 <span class="mono">z⁻¹</span> 一轮轮逼近 → <span class="mono">𝒟</span> 吐出 frontier → <span class="mono">∫</span> 关门取出终值。</div><p>当某轮 <span class="mono">𝒟</span> 输出为空（frontier 空），内部流此后全零，<span class="mono">∫</span> 已拿到稳定 O。这正是有限图可达性例子的停机画面；无界域上仍不保证终止。</p></section>
+<section><h2>7. Cycle Rule 应该怎样理解？</h2><p>论文的完整公式保留了外部输入、固定点变量和反馈 delay：</p><div class="formula">(λs. fix α. T(s, z⁻¹(α)))<sup>Δ</sup>
+=
+ λs. fix α. T<sup>Δ</sup>(s, z⁻¹(α))</div><table><tr><th>符号</th><th>完整含义</th></tr><tr><td class="mono">s</td><td>递归电路的外部输入流</td></tr><tr><td class="mono">α</td><td>固定点反馈流变量</td></tr><tr><td class="mono">T</td><td>同时读取外部输入与上一轮反馈的递归体流算子</td></tr><tr><td class="mono">T<sup>Δ</sup></td><td>流算子 T 的增量算子；T 已经是流算子，因此这里不需要再写 lift</td></tr><tr><td class="mono">z⁻¹(α)</td><td>将反馈流 α 延迟一个内部逻辑时间步</td></tr></table><p>这条式子说的是：在满足论文良构/因果条件的 DBSP 电路中，增量化可以穿过这个特定反馈结构；它不是任意程序语言递归函数的无条件代数等式。</p><div class="callout warn"><strong>因果 / 严格因果：</strong><ul style="margin:8px 0 0;padding-left:1.2em"><li><strong>因果</strong>：时刻 t 输出只依赖 ≤ t 的输入——不偷看未来；lift 与 <span class="mono">z⁻¹</span> 皆因果。</li><li><strong>严格因果</strong>：只依赖 &lt; t 的输入——本轮不看本轮；<span class="mono">z⁻¹</span> 满足，故 <span class="mono">fix α. T(s, z⁻¹(α))</span> 有唯一解。</li><li>Cycle Rule 只适用于<strong>已带严格因果反馈</strong>的结构；即时环不在范围内。</li></ul></div><p>含义是：把递归体中的 filter、join、distinct 等节点按各自的局部规则增量化，再保留反馈结构，便可让 frontier 在增量递归体中循环。</p><div class="callout good"><strong>semi-naïve 钩子：</strong>论文 §5.1 指出，§5 朴素环（<span class="mono">ℐ</span>/<span class="mono">𝒟</span> 夹住 <span class="mono">↑R</span>）经 Cycle Rule 改写后，等价于把环体直接换成增量算子：</div><div class="formula">I ──→ δ₀ ──→ (↑R)<sup>Δ</sup> ──→ (↑distinct)<sup>Δ</sup> ──→ ∫ ──→ O
+                ▲                         │
+                └──────── z⁻¹ ────────────┘</div><p>这正是 semi-naïve evaluation：每一内部时刻只让“新推导”进入下一轮，而不是整表重 join。<strong>Cycle Rule 不是额外发明的优化口号，而是 semi-naïve 正确性的代数来源。</strong></p><div class="callout purple"><strong>术语对齐 · frontier：</strong>本课的 frontier（§3–4「上一轮新增且尚待传播的事实」）＝朴素环 <span class="mono">𝒟</span> 的输出，＝semi-naïve 环增量体 <span class="mono">(↑R)<sup>Δ</sup></span> / <span class="mono">(↑distinct)<sup>Δ</sup></span> 吐出的变化；frontier 空 ⇔ 迭代可停。</div><div class="callout bad"><strong>不要过度外推：</strong>这不是对任意数学函数、任意无延迟循环都无条件成立的口号。论文中的 cycle rule 依赖 DBSP 对电路、时间、可因果执行和反馈结构的定义。实际推导必须满足相应良构条件。</div><p>对可达性，递归体里的 join 仍使用双线性增量公式，distinct 仍需要 multiplicity 状态；递归不会取消这些局部规则。</p></section>
+<section><h2>8. 完整增量递归为什么需要 nested streams？</h2><p>普通 fixed-point 计算内部本来就有一条“每轮新增事实”的变化流；当数据库又按事务持续变化时，会出现两层逻辑时间：</p><div class="formula">外层时间 t：输入事务/批次 0,1,2,…
+内层时间 i：某个事务内的 fixed-point iteration 0,1,2,…</div><p>论文用 <strong>nested streams（嵌套流）</strong>表达这二维结构：外层流的每个元素，本身是一条内部迭代流。增量递归不是只保存最终闭包；它要能够调整由旧输入产生的 fixed-point 迭代历史，使外层输入变化沿内层反馈传播。</p><div class="callout warn"><strong>终止边界：</strong>这个有限图可达性例子会在 frontier 为空时停止；一般 DBSP 递归在无界域上<strong>不保证终止</strong>。运行时并不承诺所有循环都会结束，只保证在计算终止时结果满足语义。</div></section>
+<section><h2>9. 删除为什么比插入更难直觉化？</h2><p>插入一条边只会增加可达路径；删除一条边可能让某条路径消失，也可能因为还有其他替代路径而继续存在。例如 A→C 同时可由直接边和 A→B→C 推出，删除其中一个证明不能立即删除结果。</p><p>Z-set multiplicity 可以把不同推导贡献计数；distinct/阈值状态再判断结果是否仍然存在。其处理过程是：</p><div class="formula">删除边 → 产生负的路径贡献
+多个证明的正负权重合并
+只有最终存在性从正数降到 0，才撤回 Reach 记录</div><div class="callout purple">这正是“递归 + join + distinct 状态”组合起来的地方。不要为删除另造一套完全独立的语义。</div></section>
+<section><h2>10. 小结</h2><ol><li>递归查询是求最小不动点，电路上表现为带 <span class="mono">z⁻¹</span> 的反馈。</li><li><span class="mono">δ₀</span> / <span class="mono">∫</span> 是反馈环的入口与出口：打开内部迭代时钟，并在 frontier 耗尽后取出固定点。</li><li><span class="mono">z⁻¹</span> 提供严格因果，使 <span class="mono">fix</span> 有唯一可执行解；因果/严格因果是 Cycle Rule 的前提，不是装饰。</li><li>frontier（= 环上 <span class="mono">𝒟</span> / 增量体输出的新事实）只传播尚未见过的变化；semi-naïve 是 Cycle Rule 的直接推论。</li><li>完整增量递归还要 nested streams 处理“事务 × 迭代”二维时间；删除仍走 multiplicity + distinct 状态，不另起炉灶。</li></ol></section>
+<section><h2>11. 理解检查</h2><div class="quiz" data-answer="1" data-explain="不动点到达的可执行判据就是本轮不再产生新事实。"><div class="q">对这个有限图可达性例子，递归什么时候停止？</div><div class="options"><button class="opt">固定执行 10 轮</button><button class="opt">frontier 为空，没有新路径产生时</button><button class="opt">读完第一条边时</button></div><div class="feedback"></div></div><div class="quiz" data-answer="0" data-explain="semi-naive 只让新增部分继续参与后续推导。"><div class="q">frontier 与完整 Known 的区别是什么？</div><div class="options"><button class="opt">frontier 是上一轮新增且尚待传播的事实</button><button class="opt">frontier 是所有历史结果</button><button class="opt">两者永远相同</button></div><div class="feedback"></div></div><div class="quiz" data-answer="1" data-explain="delay 建立明确的迭代时间边界。"><div class="q">反馈环中 z⁻¹ 的主要作用是什么？</div><div class="options"><button class="opt">删除重复行</button><button class="opt">把反馈推迟一个逻辑步，使本轮读取上一轮状态</button><button class="opt">把整数变成字符串</button></div><div class="feedback"></div></div><div class="quiz" data-answer="1" data-explain="Cycle Rule 有框架条件，不能脱离电路语义当作万能等式。"><div class="q">对完整 Cycle Rule 公式最准确的理解是？</div><div class="options"><button class="opt">任意递归函数都无条件成立</button><button class="opt">在 DBSP 定义的良构、因果反馈电路中，递归体可局部增量化并保留反馈结构</button><button class="opt">递归不需要 join/distinct 的增量规则</button></div><div class="feedback"></div></div><div class="quiz" data-answer="2" data-explain="δ₀ 把标量关系嵌成内部时刻 0 的脉冲流；∫ 在 frontier 耗尽后把内部变化流收成固定点标量。二者是环的入口/出口，不是 z⁻¹ 本身。"><div class="q">在论文 §5.1 递归电路里，δ₀ 与 ∫ 分别扮演什么角色？</div><div class="options"><button class="opt">都是 delay，和 z⁻¹ 完全同义</button><button class="opt">δ₀ 做微分，∫ 做 join</button><button class="opt">δ₀ 是入口（标量→内部流），∫ 是出口（内部变化流→固定点）</button></div><div class="feedback"></div></div><div class="quiz" data-answer="0" data-explain="严格因果只看严格过去；z⁻¹ 因此保证 fix α. T(s, z⁻¹(α)) 有唯一解。"><div class="q">为什么反馈边上的 z⁻¹ 被称作严格因果，且对 Cycle Rule 至关重要？</div><div class="options"><button class="opt">本时刻输出只依赖严格更早的输入，使不动点方程有唯一可执行解</button><button class="opt">它删除重复行，替代 distinct</button><button class="opt">它把流变成标量，替代 ∫</button></div><div class="feedback"></div></div></section>
+<nav>
+<a href="0010-end-to-end-incrementalization.html">← 上一课</a>
+<a href="index.html">课程目录</a>
+<a href="0012-paper-system-pipeline.html">下一课 →</a>
+</nav>
+<footer>DBSP IVM 交互教学文档 · 严格记号中，增量算子作用于变化流；不会把快照与变化混写。 · <a href="index.html">课程目录</a></footer></div><script>
+document.querySelectorAll('.quiz').forEach(q=>{q.querySelectorAll('.opt').forEach((b,i)=>b.addEventListener('click',()=>{if(q.dataset.done)return;q.dataset.done='1';const ok=i===Number(q.dataset.answer);b.classList.add(ok?'correct':'wrong');q.querySelectorAll('.opt').forEach((x,j)=>{x.disabled=true;if(j===Number(q.dataset.answer))x.classList.add('correct')});const f=q.querySelector('.feedback');f.textContent=(ok?'✓ ':'✗ ')+q.dataset.explain;f.classList.add('show')}))});
+</script></body></html>

@@ -40,7 +40,7 @@ tags: [timely-dataflow, differential-dataflow, 迭代计算, 递归sql]
 }
 </style>
 
-> 系列阅读：[一：并行与 DAG]({{ '/2026/07/27/stream-lecture-1-dag-and-loop/' | relative_url }}) · [二：循环与无界计算]({{ '/2026/10/28/stream-lecture-2-loops-and-unbounded-computation/' | relative_url }}) · [三：事件时间、状态与容错]({{ '/2026/08/05/stream-lecture-2-time-state-and-fault-tolerance/' | relative_url }})
+> 系列阅读：[一：并行与 DAG]({{ '/2026/07/27/stream-lecture-1-dag-and-loop/' | relative_url }}) · [二：循环与无界计算]({{ '/2026/10/28/stream-lecture-2-loops-and-unbounded-computation/' | relative_url }}) · [三：事件时间、状态与容错]({{ '/2026/08/05/stream-lecture-2-time-state-and-fault-tolerance/' | relative_url }}) · [四：循环中的增量计算]({{ '/2026/11/09/stream-lecture-4-incremental-computation-in-loops/' | relative_url }})
 
 第一篇讨论固定算子的静态计算图。这一篇从同一张持股表出发。查询需要沿持股关系继续查找。新发现的公司会再次成为输入。
 
@@ -1835,6 +1835,8 @@ while 工作表不为空:
 持续输入把这套过程反复应用到不同逻辑阶段。外层 epoch 描述输入历史，内层 iteration 描述递归展开；完成旧版本的同时，任务可以继续处理新版本。旧版本留下的状态是否保留，则由后续 join、递归更新和读取需要决定。
 
 [第三篇：事件时间、状态与故障恢复]({{ '/2026/08/05/stream-lecture-2-time-state-and-fault-tolerance/' | relative_url }})继续处理外部现实：业务事件会迟到，机器会失败，结果可能需要修订。那一篇区分 watermark 所表达的事件时间边界，与 checkpoint 所保存的恢复切面。
+
+[第四篇《循环中的增量计算》]({{ '/2026/11/09/stream-lecture-4-incremental-computation-in-loops/' | relative_url }})继续讨论怎样维护递归结果。我们用 distinct 跟踪一次删除。它根据输入历史计算某个逻辑时间应有的结果。它再减去输出历史在该时间的累计结果。差额就是需要发送的修正。修正会继续在循环中传播。
 
 ## 延伸阅读
 

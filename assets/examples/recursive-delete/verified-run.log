@@ -1,0 +1,62 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running `target/debug/recursive_delete_quiz`
+RAW 01: INPUT: insert seed P and four initial edges
+RAW 02: ENTRY (0, (0, 0), 1)
+RAW 03: ENTRY (0, (0, 1), -1)
+RAW 04: JOIN (1, (0, 0), 1)
+RAW 05: JOIN (2, (0, 0), 1)
+RAW 06: DISTINCT (0, (0, 0), 1)
+RAW 07: DISTINCT (1, (0, 0), 1)
+RAW 08: DISTINCT (2, (0, 0), 1)
+RAW 09: ENTRY (0, (0, 1), 1)
+RAW 10: ENTRY (1, (0, 1), 1)
+RAW 11: ENTRY (2, (0, 1), 1)
+RAW 12: OUTER (1, 0, 1)
+RAW 13: OUTER (2, 0, 1)
+RAW 14: JOIN (1, (0, 1), 1)
+RAW 15: JOIN (2, (0, 1), 1)
+RAW 16: INPUT: epoch 0 complete; remove P -> alpha at epoch 1
+RAW 17: JOIN (1, (1, 0), -1)
+RAW 18: DISTINCT (1, (1, 0), -1)
+RAW 19: ENTRY (1, (1, 1), -1)
+RAW 20: OUTER (1, 1, -1)
+RAW 21: JOIN (2, (1, 1), -1)
+RAW 22: DISTINCT (1, (1, 1), 1)
+RAW 23: ENTRY (1, (1, 2), 1)
+RAW 24: OUTER (1, 1, 1)
+RAW 25: JOIN (2, (1, 2), 1)
+RAW 26: PROGRESS: epoch 1 complete
+Observation: loop entry; timestamp=(input version, iteration), 0=P, 1=甲, 2=乙
+entry update: node=1, time=(1,1), diff=-1
+entry update: node=1, time=(1,2), diff=+1
+JOIN output / distinct input:
+  node=1, time=(0, 0), diff=+1
+  node=1, time=(0, 1), diff=+1
+  node=1, time=(1, 0), diff=-1
+  node=2, time=(0, 0), diff=+1
+  node=2, time=(0, 1), diff=+1
+  node=2, time=(1, 1), diff=-1
+  node=2, time=(1, 2), diff=+1
+distinct output / before feedback:
+  node=0, time=(0, 0), diff=+1
+  node=1, time=(0, 0), diff=+1
+  node=1, time=(1, 0), diff=-1
+  node=1, time=(1, 1), diff=+1
+  node=2, time=(0, 0), diff=+1
+outer output net changes at input version 1: {}
+outer snapshot at 0: {1: 1, 2: 1}
+outer snapshot at 1: {1: 1, 2: 1}
+RAW 27: INPUT: epoch 1 complete; remove P -> beta at epoch 2
+RAW 28: JOIN (2, (2, 0), -1)
+RAW 29: DISTINCT (2, (2, 0), -1)
+RAW 30: ENTRY (2, (2, 1), -1)
+RAW 31: OUTER (2, 2, -1)
+RAW 32: JOIN (1, (2, 1), -1)
+RAW 33: DISTINCT (1, (2, 1), -1)
+RAW 34: ENTRY (1, (2, 2), -1)
+RAW 35: OUTER (1, 2, -1)
+RAW 36: JOIN (2, (2, 2), -1)
+RAW 37: PROGRESS: epoch 2 complete
+epoch 2 distinct net updates (node, iteration): {(1, 1): -1, (2, 0): -1}
+outer snapshot at 2: {}
+PASS: actual Differential loop-entry updates and outer snapshots

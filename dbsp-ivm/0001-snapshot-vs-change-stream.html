@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>第 1 课 · 快照流 vs 变化流</title>
+<style>
+:root{--bg:#f4f1eb;--paper:#fffdf8;--ink:#1c1917;--muted:#57534e;--line:#e8e0d4;--accent:#9a3412;--accent-soft:#ffedd5;--teal:#0f766e;--teal-soft:#ccfbf1;--good:#166534;--good-soft:#dcfce7;--bad:#991b1b;--bad-soft:#fee2e2;--purple:#6d28d9;--purple-soft:#ede9fe;--code:#1c1917;--shadow:0 10px 28px rgba(28,25,23,.06)}
+*{box-sizing:border-box}
+body{margin:0;line-height:1.68;color:var(--ink);font-family:"Iowan Old Style","Palatino Linotype",Palatino,"Songti SC","Noto Serif SC",serif;background:radial-gradient(900px 480px at 0 0,#ffedd5 0,transparent 55%),radial-gradient(800px 420px at 100% 10%,#ccfbf155 0,transparent 50%),var(--bg)}
+.wrap{max-width:920px;margin:0 auto;padding:36px 18px 72px}
+header{margin-bottom:28px}
+.eyebrow{display:inline-flex;gap:8px;align-items:center;font-family:ui-sans-serif,system-ui,sans-serif;font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+h1{font-size:clamp(1.75rem,3vw,2.35rem);line-height:1.2;margin:10px 0 12px}
+.lead{font-size:1.07rem;color:var(--muted)}
+section{background:var(--paper);border:1px solid var(--line);border-radius:18px;padding:22px;margin:18px 0;box-shadow:var(--shadow)}
+h2{font-size:1.25rem;margin:0 0 11px}
+h3{font-size:1.06rem;margin:20px 0 8px}
+p{margin:0 0 12px}
+ul, ol{margin:0 0 12px;padding-left:1.25em}
+li{margin:0.25em 0}
+.callout{border-left:4px solid var(--teal);padding:12px 14px;background:var(--teal-soft);border-radius:0 12px 12px 0;margin:14px 0;font-family:ui-sans-serif,system-ui,sans-serif;font-size:.95rem}
+.callout.warn{border-left-color:var(--accent);background:var(--accent-soft)}
+.callout.good{border-left-color:var(--good);background:var(--good-soft)}
+table{width:100%;border-collapse:collapse;margin:10px 0 14px;font-size:.9rem;font-family:ui-sans-serif,system-ui,sans-serif}
+th, td{border:1px solid var(--line);padding:8px 10px}
+th{background:#faf6f0;padding:8px 10px}
+.delta-pos{color:var(--good);font-weight:700}
+.delta-neg{color:var(--bad);font-weight:700}
+.timeline{display:grid;gap:10px;font-family:ui-sans-serif, system-ui, sans-serif}
+.step{display:grid;grid-template-columns:72px 1fr;gap:12px;align-items:start;padding:12px;border:1px dashed var(--line);border-radius:12px;background:#fffcf7}
+.t{font-weight:800;color:var(--accent);font-size:0.95rem}
+.mono{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;font-size:0.9rem}
+.formula{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--code);color:#fafaf9;padding:15px 17px;border-radius:12px;overflow:auto;margin:12px 0;line-height:1.6;white-space:pre-wrap}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width: 700px){.grid-2{grid-template-columns:1fr}}}
+.card{border:1px solid var(--line);border-radius:12px;padding:13px;background:#fffcf7}
+.card h4{margin:0 0 8px;font-family:ui-sans-serif, system-ui, sans-serif;font-size:0.85rem;letter-spacing:0.04em;text-transform:uppercase;color:var(--muted)}
+.quiz{border:1px solid var(--line);border-radius:14px;padding:14px;margin:12px 0;background:#fff}
+.quiz .q{font-family:ui-sans-serif, system-ui, sans-serif;font-weight:700;margin-bottom:10px}
+.options{display:grid;gap:8px}
+button.opt{text-align:left;border:1px solid var(--line);background:#fff;border-radius:10px;padding:10px 12px;cursor:pointer;font:inherit;font-family:ui-sans-serif, system-ui, sans-serif;font-size:0.92rem}
+button.opt:hover{border-color:var(--accent)}
+button.opt.correct{background:var(--good-soft);border-color:var(--good)}
+button.opt.wrong{background:var(--bad-soft);border-color:var(--bad)}
+button.opt:disabled{cursor:default;opacity:0.95}
+.feedback{margin-top:10px;font-family:ui-sans-serif, system-ui, sans-serif;font-size:0.92rem;display:none}
+.feedback.show{display:block}
+.lab{border:2px solid var(--accent);border-radius:16px;padding:16px;background:linear-gradient(180deg, #f0fdfa, #fff)}
+.lab h3{margin-top:0}
+.row{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0;font-family:ui-sans-serif, system-ui, sans-serif}
+.row label{display:flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--line);border-radius:999px;padding:6px 10px;font-size:0.9rem}
+.row input[type="number"]{width:64px;border:1px solid var(--line);border-radius:8px;padding:4px 6px;font:inherit}
+button.primary{background:var(--accent);color:white;border:none;border-radius:10px;padding:10px 14px;font-family:ui-sans-serif, system-ui, sans-serif;font-weight:700;cursor:pointer}
+button.primary:hover{filter:brightness(1.05)}
+#labOut{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;white-space:pre-wrap;background:#1c1917;color:#fafaf9;border-radius:12px;padding:12px;min-height:120px;margin-top:10px}
+footer{margin-top:28px;color:var(--muted);font-size:.88rem;font-family:ui-sans-serif,system-ui,sans-serif}
+a{color:var(--teal)}
+.tag{display:inline-block;background:#fff;border:1px solid var(--line);border-radius:999px;padding:2px 8px;font-size:12px;font-family:ui-sans-serif,system-ui,sans-serif;color:var(--muted)}
+.cite{font-size:0.88rem;color:var(--muted);font-family:ui-sans-serif, system-ui, sans-serif}
+/* Mathematical subscripts/superscripts: keep indices attached to their base symbol. */
+  .formula sub, .formula sup, .mono sub, .mono sup, .math sub, .math sup{font-size:0.74em;line-height:0;position:relative;vertical-align:baseline}
+.formula sup, .mono sup, .math sup{top:-0.52em}
+.formula sub, .mono sub, .math sub{bottom:-0.20em}
+.diagram{margin:14px 0 8px;padding:14px 12px 10px;border:1px solid var(--line);border-radius:14px;background:linear-gradient(180deg,#fffefb 0%,#faf6f0 100%);overflow-x:auto}
+.diagram svg{display:block;width:100%;height:auto;max-width:100%;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.diagram-cap{margin:0 0 4px;font:.86rem ui-sans-serif,system-ui,sans-serif;color:var(--muted);line-height:1.45}
+nav{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;margin:24px 0;font-family:ui-sans-serif,system-ui,sans-serif}
+nav a{border:1px solid var(--line);border-radius:12px;background:#fff;padding:10px 14px;text-decoration:none;font-weight:700;color:var(--teal)}
+.callout.bad{border-left-color:var(--bad);background:var(--bad-soft)}
+.callout.purple{border-left-color:var(--purple);background:var(--purple-soft)}
+
+.course-byline { margin: 0 0 12px; color: var(--accent); font: 1rem/1.6 ui-sans-serif, system-ui, sans-serif; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+<div class="eyebrow">DBSP 教学 · Lesson 0001 · 约 15 分钟</div>
+<h1>快照流 vs 变化流</h1>
+<p class="course-byline">教程制作 · <strong>李金懋</strong>（OceanBase）</p>
+
+<p class="lead">本课建立 DBSP 的时间模型：同一段数据库历史既可以表示为完整快照序列，也可以表示为逐批变化序列。两种表示通过累积与差分互相转换。</p>
+<p class="cite">
+        依据：
+        <a href="https://ar5iv.labs.arxiv.org/html/2203.16684" rel="noopener" target="_blank">DBSP 论文 §1–2</a>
+        ·
+        <a href="https://arxiv.org/abs/2203.16684" rel="noopener" target="_blank">arXiv:2203.16684</a>
+</p>
+</header>
+<section>
+<h2>1. 论文要解决什么问题</h2>
+<h3>问题</h3>
+<p>
+        基表改了一行，物化视图却要<strong>整库重跑</strong>查询——太慢。
+        想要的是：喂进去「改了什么」（ΔDB），直接拿到「视图变了什么」（ΔV），计算尽量跟变化规模相关，而不是每次都重复扫描全库。
+        这叫 <strong>IVM（增量视图维护）</strong>。
+      </p>
+<p>
+        单条 SUM 谁都会手写增量。难的是：<strong>join、聚合、distinct、递归……任意组合能不能自动得到正确的增量版？</strong>
+        以前靠人逐条 SQL 写规则，覆盖不全、易错、不可组合。
+      </p>
+<h3>DBSP 的回答</h3>
+<p>
+        你写普通查询 Q。编译器按固定算法把 Q 改写成增量版 (↑Q)<sup>Δ</sup>——运行时以 ΔDB 为输入、产出 ΔV，目标是尽量避免每次都整库重跑。
+        同一套改写流程覆盖一大类 SQL / Datalog，不用逐条手写。
+      </p>
+<h3>关键点</h3>
+<ol>
+<li>从基表的增量 <span class="mono">ΔDB</span> 推导出视图的增量 <span class="mono">ΔV</span>，而不是重跑完整视图查询。</li>
+<li>视图增量可沿查询结构继续拆分：复杂视图拆成复合单元，再拆成基础算子。只要基础算子的增量规则能高效实现，编译器就能把它们组合成复杂视图的增量计算。</li>
+<li>DBSP 借鉴离散信号处理的描述方式，用一套数学框架表达这套增量计算；论文进一步推导了 filter、project、join、distinct、group by 等典型基础算子的增量规则。</li>
+</ol>
+</section>
+<section>
+<h2>2. 快照流：每个时刻库长什么样</h2>
+<p>一张表 <span class="mono">orders(id, amount)</span>，从空库开始。每提交一笔事务，时间 t 加 1。</p>
+<div class="timeline">
+<div class="step">
+<div class="t">t = 0</div>
+<div>
+            空表。
+            <table>
+<thead><tr><th>id</th><th>amount</th></tr></thead>
+<tbody><tr><td colspan="2" style="color:#78716c">（空）</td></tr></tbody>
+</table>
+</div>
+</div>
+<div class="step">
+<div class="t">t = 1</div>
+<div>
+            插入 A、B。
+            <table>
+<thead><tr><th>id</th><th>amount</th></tr></thead>
+<tbody>
+<tr><td>A</td><td>10</td></tr>
+<tr><td>B</td><td>20</td></tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="step">
+<div class="t">t = 2</div>
+<div>
+            插入 C。
+            <table>
+<thead><tr><th>id</th><th>amount</th></tr></thead>
+<tbody>
+<tr><td>A</td><td>10</td></tr>
+<tr><td>B</td><td>20</td></tr>
+<tr><td>C</td><td>30</td></tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="step">
+<div class="t">t = 3</div>
+<div>
+            删除 B。
+            <table>
+<thead><tr><th>id</th><th>amount</th></tr></thead>
+<tbody>
+<tr><td>A</td><td>10</td></tr>
+<tr><td>C</td><td>30</td></tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="step">
+<div class="t">t = 4</div>
+<div>
+            更新 A: 10→25（= 删除旧行 A:10，插入新行 A:25）。
+            <table>
+<thead><tr><th>id</th><th>amount</th></tr></thead>
+<tbody>
+<tr><td>A</td><td>25</td></tr>
+<tr><td>C</td><td>30</td></tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+<p>把这 5 个表按时间排成序列，就是<strong>快照流</strong>——每个时刻数据库的完整样子。</p>
+</section>
+<section>
+<h2>3. 变化流：每个时刻改了什么</h2>
+<p>同一段历史，换成只记「这一步相对上一步多了/少了什么」：</p>
+<table>
+<thead>
+<tr>
+<th>t</th>
+<th>变化 Δ</th>
+</tr>
+</thead>
+<tbody>
+<tr><td>0</td><td class="mono">∅</td></tr>
+<tr><td>1</td><td class="mono"><span class="delta-pos">+A:10, +B:20</span></td></tr>
+<tr><td>2</td><td class="mono"><span class="delta-pos">+C:30</span></td></tr>
+<tr><td>3</td><td class="mono"><span class="delta-neg">−B:20</span></td></tr>
+<tr><td>4</td><td class="mono"><span class="delta-neg">−A:10</span>, <span class="delta-pos">+A:25</span></td></tr>
+</tbody>
+</table>
+<p>这条序列就是<strong>变化流</strong>。</p>
+<h3>快照与变化可以互转</h3>
+<div class="grid-2">
+<div class="card">
+<h4>变化 → 快照（累积）</h4>
+<p class="mono">快照[t] = Δ[0] + Δ[1] + … + Δ[t]</p>
+<p>把历史变化全加起来，就是当前完整表。<br/>例：t=3，(+A10 +B20) + (+C30) + (−B20) = {A10, C30}。</p>
+</div>
+<div class="card">
+<h4>快照 → 变化（差分）</h4>
+<p class="mono">Δ[t] = 快照[t] − 快照[t−1]</p>
+<p>相邻两个快照做差，就是这一步的变化。<br/>例：t=3 比 t=2 少了 B → Δ = −B。</p>
+</div>
+</div>
+<p class="cite">论文把累积叫积分 ℐ，把差分叫微分 𝒟——名字来自信号处理，先当 cumsum / diff 理解即可。</p>
+<div class="callout good">
+<strong>统一记号：</strong><span class="mono">X<sub>t</sub></span> 是第 <span class="mono">t</span> 步完整快照，<span class="mono">d<sub>t</sub></span> 是第 <span class="mono">t</span> 步变化；各自打包成流 <span class="mono">s=(X<sub>0</sub>,X<sub>1</sub>,…)</span>、<span class="mono">Δ=(d<sub>0</sub>,d<sub>1</sub>,…)</span>，故 <span class="mono">s[t]=X<sub>t</sub></span>、<span class="mono">Δ[t]=d<sub>t</sub></span>。约定 <span class="mono">X<sub>0</sub>=∅</span>、<span class="mono">d<sub>0</sub>=∅</span>，<span class="mono">t ≥ 1</span> 时 <span class="mono">X<sub>t</sub>=X<sub>t−1</sub>+d<sub>t</sub></span>。
+</div>
+</section>
+<section>
+<h2>4. 视图也有快照流和变化流</h2>
+<div class="formula">CREATE VIEW total AS SELECT SUM(amount) AS s FROM orders;</div>
+<p>对每个数据库快照执行查询，得到视图快照流；再对相邻视图快照做差分，得到视图变化流。这里用 <span class="mono">SUM</span> 的数字结果直观展示两种流：</p>
+<table>
+<thead>
+<tr><th>t</th><th>orders 快照</th><th>视图 SUM</th><th>Δ(视图)</th></tr>
+</thead>
+<tbody>
+<tr><td>0</td><td>∅</td><td>0</td><td>0</td></tr>
+<tr><td>1</td><td>A10, B20</td><td><strong>30</strong></td><td class="delta-pos">+30</td></tr>
+<tr><td>2</td><td>A10, B20, C30</td><td><strong>60</strong></td><td class="delta-pos">+30</td></tr>
+<tr><td>3</td><td>A10, C30</td><td><strong>40</strong></td><td class="delta-neg">−20</td></tr>
+<tr><td>4</td><td>A25, C30</td><td><strong>55</strong></td><td class="delta-pos">+15</td></tr>
+</tbody>
+</table>
+<p>
+<strong>IVM 要的就是</strong>：输入「表的变化」，直接输出「视图的变化」——不必每次整表扫一遍再 SUM。
+      </p>
+</section>
+<section>
+<h2>5. 维护视图的两种基本方式</h2>
+<p><strong>全量重算</strong>——每次事务后对整表重跑查询。1 亿行改 1 行，仍扫 1 亿行。</p>
+<p><strong>手写增量</strong>——SUM 的增量很容易写（旧值 + 插入 − 删除），但查询变成 join + distinct + 子查询时，逐条设计、验证和维护规则的成本会迅速上升。</p>
+<figure class="diagram">
+<svg viewBox="0 0 920 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="ivm-title ivm-desc">
+  <title id="ivm-title">论文 §1 IVM 双路总览</title>
+  <desc id="ivm-desc">上路：ΔT 经 ℐ、↑Q、𝒟 得到 ΔV；下路捷径：(↑Q)^Δ 直接从 ΔT 到 ΔV；两路输出相等</desc>
+  <defs>
+    <marker id="ivm-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M2 1.5 L9 5 L2 8.5 Z" fill="#57534e"/>
+    </marker>
+    <marker id="ivm-arrA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M2 1.5 L9 5 L2 8.5 Z" fill="#9a3412"/>
+    </marker>
+    <marker id="ivm-arrG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M2 1.5 L9 5 L2 8.5 Z" fill="#166534"/>
+    </marker>
+  </defs>
+
+  <!-- path labels -->
+  <text x="460" y="28" text-anchor="middle" font-size="12" font-weight="700" fill="#0f766e" font-family="ui-sans-serif,system-ui,sans-serif">上路 · 朴素语义（恢复快照 → 跑查询 → 差分）</text>
+  <text x="460" y="210" text-anchor="middle" font-size="12" font-weight="700" fill="#9a3412" font-family="ui-sans-serif,system-ui,sans-serif">下路 · 增量捷径（直接在变化上流式计算）</text>
+
+  <!-- ΔT shared input -->
+  <rect x="24" y="118" width="56" height="36" rx="10" fill="#fff" stroke="#1c1917" stroke-width="1.6"/>
+  <text x="52" y="141" text-anchor="middle" font-size="15" font-weight="700" fill="#1c1917">ΔT</text>
+  <text x="52" y="172" text-anchor="middle" font-size="10" fill="#57534e" font-family="ui-sans-serif,system-ui,sans-serif">事务变化流</text>
+
+  <!-- fork from ΔT -->
+  <circle cx="110" cy="136" r="3.5" fill="#57534e"/>
+  <path d="M80 136 H106.5" stroke="#57534e" stroke-width="1.6"/>
+
+  <!-- ===== top path ===== -->
+  <!-- up to I -->
+  <path d="M110 136 V70 H148" fill="none" stroke="#57534e" stroke-width="1.6" marker-end="url(#ivm-arr)"/>
+
+  <!-- ℐ -->
+  <rect x="152" y="50" width="52" height="40" rx="10" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.6"/>
+  <text x="178" y="75" text-anchor="middle" font-size="18" font-weight="700" fill="#0f766e">ℐ</text>
+  <text x="178" y="108" text-anchor="middle" font-size="10" fill="#0f766e" font-family="ui-sans-serif,system-ui,sans-serif">积分</text>
+
+  <!-- DB -->
+  <path d="M204 70 H236" stroke="#57534e" stroke-width="1.6" marker-end="url(#ivm-arr)"/>
+  <rect x="240" y="50" width="72" height="40" rx="10" fill="#fff" stroke="#1c1917" stroke-width="1.6"/>
+  <text x="276" y="68" text-anchor="middle" font-size="14" font-weight="700" fill="#1c1917">DB</text>
+  <text x="276" y="82" text-anchor="middle" font-size="9" fill="#57534e">快照流</text>
+
+  <!-- ↑Q -->
+  <path d="M312 70 H344" stroke="#57534e" stroke-width="1.6" marker-end="url(#ivm-arr)"/>
+  <rect x="348" y="50" width="64" height="40" rx="10" fill="#fff" stroke="#9a3412" stroke-width="1.6"/>
+  <text x="380" y="75" text-anchor="middle" font-size="16" font-weight="700" fill="#9a3412">↑Q</text>
+  <text x="380" y="108" text-anchor="middle" font-size="10" fill="#57534e" font-family="ui-sans-serif,system-ui,sans-serif">逐时刻查询</text>
+
+  <!-- V -->
+  <path d="M412 70 H444" stroke="#57534e" stroke-width="1.6" marker-end="url(#ivm-arr)"/>
+  <rect x="448" y="50" width="64" height="40" rx="10" fill="#fff" stroke="#1c1917" stroke-width="1.6"/>
+  <text x="480" y="68" text-anchor="middle" font-size="14" font-weight="700" fill="#1c1917">V</text>
+  <text x="480" y="82" text-anchor="middle" font-size="9" fill="#57534e">视图快照流</text>
+
+  <!-- 𝒟 -->
+  <path d="M512 70 H544" stroke="#57534e" stroke-width="1.6" marker-end="url(#ivm-arr)"/>
+  <rect x="548" y="50" width="52" height="40" rx="10" fill="#ccfbf1" stroke="#9a3412" stroke-width="1.6"/>
+  <text x="574" y="75" text-anchor="middle" font-size="18" font-weight="700" fill="#9a3412">𝒟</text>
+  <text x="574" y="108" text-anchor="middle" font-size="10" fill="#9a3412" font-family="ui-sans-serif,system-ui,sans-serif">微分</text>
+
+  <!-- top to join -->
+  <path d="M600 70 H700 V136" fill="none" stroke="#57534e" stroke-width="1.6"/>
+
+  <!-- ===== bottom path ===== -->
+  <path d="M110 136 V236 H318" fill="none" stroke="#9a3412" stroke-width="1.6"/>
+
+  <!-- (↑Q)^Δ -->
+  <rect x="322" y="216" width="100" height="40" rx="10" fill="#ffedd5" stroke="#9a3412" stroke-width="1.6"/>
+  <text x="372" y="241" text-anchor="middle" font-size="15" font-weight="700" fill="#9a3412">(↑Q)^Δ</text>
+  <text x="372" y="274" text-anchor="middle" font-size="10" fill="#9a3412" font-family="ui-sans-serif,system-ui,sans-serif">增量算子</text>
+
+  <path d="M422 236 H700 V152" fill="none" stroke="#9a3412" stroke-width="1.6"/>
+
+  <!-- merge point + ΔV -->
+  <circle cx="700" cy="136" r="4" fill="#166534"/>
+  <path d="M704 136 H748" stroke="#166534" stroke-width="1.6" marker-end="url(#ivm-arrG)"/>
+  <rect x="752" y="116" width="64" height="40" rx="10" fill="#dcfce7" stroke="#166534" stroke-width="1.6"/>
+  <text x="784" y="141" text-anchor="middle" font-size="16" font-weight="700" fill="#166534">ΔV</text>
+  <text x="784" y="172" text-anchor="middle" font-size="10" fill="#166534" font-family="ui-sans-serif,system-ui,sans-serif">视图变化流</text>
+
+  <!-- equality annotation -->
+  <rect x="620" y="118" width="68" height="36" rx="8" fill="#dcfce7" stroke="#166534" stroke-width="1.25"/>
+  <text x="654" y="134" text-anchor="middle" font-size="10" font-weight="700" fill="#166534" font-family="ui-sans-serif,system-ui,sans-serif">两路输出</text>
+  <text x="654" y="148" text-anchor="middle" font-size="10" font-weight="700" fill="#166534" font-family="ui-sans-serif,system-ui,sans-serif">相等</text>
+
+  <!-- formula strip -->
+  <text x="460" y="294" text-anchor="middle" font-size="12" fill="#1c1917">(↑Q)^Δ  ≜  𝒟 ∘ ↑Q ∘ ℐ</text>
+</svg>
+<p class="diagram-cap">图：论文 §1 的 IVM 双路总览。上路把变化积成库快照、逐时刻跑 Q、再微分得 ΔV；下路用增量算子 (↑Q)<sup>Δ</sup> 直接从 ΔT 得到同一条 ΔV。DBSP 的核心是自动构造并优化下路，同时保证与上路语义一致。</p>
+</figure>
+</section>
+<section>
+<h2>6. 小结</h2>
+<ul>
+<li><strong>快照流</strong> = 每个事务后的完整表</li>
+<li><strong>变化流</strong> = 每个事务改了什么</li>
+<li>累积变化 → 快照；相邻快照做差 → 变化</li>
+<li>IVM = 以变化驱动变化（ΔDB → ΔV），尽量避免重复全量计算</li>
+</ul>
+</section>
+<section>
+<h2>7. 理解检查</h2>
+<div class="quiz" data-answer="1">
+<div class="q">Q1. 若只告诉你变化流：t=1 时 +A10、t=2 时 +B20、t=3 时 −A10，则 t=3 的快照是？</div>
+<div class="options">
+<button class="opt" data-i="0">{A10, B20}</button>
+<button class="opt" data-i="1">{B20}</button>
+<button class="opt" data-i="2">∅</button>
+<button class="opt" data-i="3">{A10}</button>
+</div>
+<div class="feedback" data-bad="再累加一遍：先有 A，再有 B，再删掉 A，剩下 B。" data-ok="对：(+A10)+(+B20)+(−A10) = 只剩 B20。这就是「积分/累积」。"></div>
+</div>
+<div class="quiz" data-answer="2">
+<div class="q">Q2. 快照序列是 [∅, {A}, {A,B}, {B}]。t=2 的变化 Δ 是？</div>
+<div class="options">
+<button class="opt" data-i="0">+A</button>
+<button class="opt" data-i="1">−A</button>
+<button class="opt" data-i="2">+B</button>
+<button class="opt" data-i="3">{A,B}</button>
+</div>
+<div class="feedback" data-bad="相邻相减：t=2 比 t=1 多了 B。" data-ok="对：Δ[2] = 快照[2]−快照[1] = {A,B}−{A} = +B。"></div>
+</div>
+<div class="quiz" data-answer="0">
+<div class="q">Q3. IVM 相对「每次全量重跑视图」的核心诉求是？</div>
+<div class="options">
+<button class="opt" data-i="0">计算量尽量跟变化大小相关，而不是跟整库大小相关</button>
+<button class="opt" data-i="1">必须使用列存</button>
+<button class="opt" data-i="2">禁止使用 join</button>
+<button class="opt" data-i="3">只能在内存里算</button>
+</div>
+<div class="feedback" data-bad="回到第 4 节：慢的本质是「跟数据总量走」。" data-ok="对。论文反复强调：变化通常远小于全量，在变化上算才有收益。"></div>
+</div>
+<div class="quiz" data-answer="1">
+<div class="q">Q4. 把 A 的金额从 10 更新成 25，变化流应该写成什么？</div>
+<div class="options">
+<button class="opt" data-i="0">+A25</button>
+<button class="opt" data-i="1">−A10 + A25</button>
+<button class="opt" data-i="2">−A25 + A10</button>
+<button class="opt" data-i="3">A:10→25（不需要拆开）</button>
+</div>
+<div class="feedback" data-bad="更新必须保留前后两个快照的差异：先删旧的 A10，再加新的 A25。" data-ok="对。更新先撤销旧行，再插入新行：−A10 + A25。它准确表示更新前后两个快照的差异。"></div>
+</div>
+</section>
+<section>
+<h2>8. 与 OceanBase 的关系</h2>
+<p>
+        这里不把 DBSP 与某个具体产品实现绑定。理论上，DBSP 提供了一个视角：如何把输入变化编译成视图变化，并系统处理 join、聚合、distinct 等算子。与 OceanBase 物化视图刷新机制的具体对照，见第 0012 课「与真实系统的对照」。
+      </p>
+</section>
+
+<nav>
+<a href="index.html">← 课程目录</a>
+<a href="index.html">课程目录</a>
+<a href="0002-why-zsets.html">下一课 →</a>
+</nav>
+<footer>DBSP IVM 教学文档 · 严格记号中，增量算子作用于变化流；不会把快照与变化混写。 · <a href="index.html">课程目录</a></footer>
+</div>
+<script>
+  // Quizzes
+  document.querySelectorAll('.quiz').forEach(quiz => {
+    const answer = Number(quiz.dataset.answer);
+    const feedback = quiz.querySelector('.feedback');
+    quiz.querySelectorAll('button.opt').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const i = Number(btn.dataset.i);
+        quiz.querySelectorAll('button.opt').forEach(b => {
+          b.disabled = true;
+          if (Number(b.dataset.i) === answer) b.classList.add('correct');
+        });
+        if (i === answer) {
+          btn.classList.add('correct');
+          feedback.textContent = feedback.dataset.ok;
+        } else {
+          btn.classList.add('wrong');
+          feedback.textContent = feedback.dataset.bad;
+        }
+        feedback.classList.add('show');
+      });
+    });
+  });
+
+</script>
+</body>
+</html>

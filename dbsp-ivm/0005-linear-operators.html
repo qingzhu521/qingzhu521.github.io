@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>第 5 课 · 线性算子：为什么可以直接处理变化</title>
+<style>
+:root{--bg:#f4f1eb;--paper:#fffdf8;--ink:#1c1917;--muted:#57534e;--line:#e8e0d4;--accent:#9a3412;--accent-soft:#ffedd5;--teal:#0f766e;--teal-soft:#ccfbf1;--good:#166534;--good-soft:#dcfce7;--bad:#991b1b;--bad-soft:#fee2e2;--purple:#6d28d9;--purple-soft:#ede9fe;--code:#1c1917;--shadow:0 10px 28px rgba(28,25,23,.06)}
+*{box-sizing:border-box}
+body{margin:0;color:var(--ink);font-family:"Iowan Old Style","Palatino Linotype",Palatino,"Songti SC","Noto Serif SC",serif;line-height:1.68;background:radial-gradient(900px 480px at 0 0,#ffedd5 0,transparent 55%),radial-gradient(800px 420px at 100% 10%,#ccfbf155 0,transparent 50%),var(--bg)}
+.wrap{max-width:920px;margin:0 auto;padding:36px 18px 72px}
+.eyebrow{font-family:ui-sans-serif,system-ui,sans-serif;font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+h1{font-size:clamp(1.75rem,3vw,2.35rem);line-height:1.2;margin:10px 0 12px}
+h2{margin:0 0 11px;font-size:1.25rem}
+h3{margin:20px 0 8px;font-size:1.06rem}
+p{margin:0 0 12px}
+ul, ol{margin:0 0 12px;padding-left:1.25em}
+li{margin:.25em 0}
+a{color:var(--teal)}
+.lead{color:var(--muted);font-size:1.07rem}
+.cite{font-family:ui-sans-serif, system-ui, sans-serif;font-size:.88rem;color:var(--muted)}
+section{background:var(--paper);border:1px solid var(--line);border-radius:18px;padding:22px;margin:18px 0;box-shadow:var(--shadow)}
+.callout{border-left:4px solid var(--teal);padding:12px 14px;background:var(--teal-soft);border-radius:0 12px 12px 0;margin:14px 0;font-family:ui-sans-serif,system-ui,sans-serif;font-size:.95rem}
+.callout.warn{border-left-color:var(--accent);background:var(--accent-soft)}
+.callout.good{border-left-color:var(--good);background:var(--good-soft)}
+.callout.bad{border-left-color:var(--bad);background:var(--bad-soft)}
+.callout.purple{border-left-color:var(--purple);background:var(--purple-soft)}
+.mono{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;font-size:.9rem}
+.formula{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--code);color:#fafaf9;padding:15px 17px;border-radius:12px;overflow:auto;margin:12px 0;line-height:1.6;white-space:pre-wrap}
+.tag{display:inline-block;background:#fff;border:1px solid var(--line);border-radius:999px;padding:2px 8px;font-size:12px;font-family:ui-sans-serif,system-ui,sans-serif;color:var(--muted)}
+.prim{display:inline-block;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;font-weight:700;background:var(--accent-soft);color:var(--accent);border-radius:8px;padding:1px 8px}
+.pos{color:var(--good);font-weight:700}
+.neg{color:var(--bad);font-weight:700}
+table{width:100%;border-collapse:collapse;margin:10px 0 14px;font-size:.9rem;font-family:ui-sans-serif,system-ui,sans-serif}
+th, td{border:1px solid var(--line);padding:8px 10px}
+th{background:#faf6f0;padding:8px 10px}
+.stream-row td:first-child{font-weight:700;white-space:nowrap;width:38px}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width: 760px){.grid-2{grid-template-columns:1fr}table{font-size:.84rem}th, td{padding:8px;border:1px solid var(--line)}}}
+.card{border:1px solid var(--line);border-radius:12px;padding:13px;background:#fffcf7}
+.card h4{margin:0 0 8px;font-family:ui-sans-serif, system-ui, sans-serif;font-size:.8rem;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.pipeline{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-family:ui-sans-serif, system-ui, sans-serif;margin:12px 0}
+.pipeline .box{border:2px solid var(--ink);border-radius:12px;padding:10px 14px;background:#fff;font-weight:700}
+.pipeline .box.i{border-color:var(--teal);color:var(--teal);background:var(--teal-soft)}
+.pipeline .box.q{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.pipeline .box.ok{border-color:var(--good);color:var(--good);background:var(--good-soft)}
+.pipeline .box.d{border-color:var(--purple);color:var(--purple);background:var(--purple-soft)}
+.pipeline .arrow{color:var(--muted);font-size:1.2rem}
+.quiz{border:1px solid var(--line);border-radius:14px;padding:14px;margin:12px 0;background:#fff}
+.quiz .q{font-family:ui-sans-serif, system-ui, sans-serif;font-weight:700;margin-bottom:10px}
+.options{display:grid;gap:8px}
+button.opt{text-align:left;border:1px solid var(--line);background:#fff;border-radius:10px;padding:10px 12px;cursor:pointer;font:inherit;font-family:ui-sans-serif, system-ui, sans-serif;font-size:.92rem}
+button.opt:hover{border-color:var(--accent)}
+button.opt.correct{background:var(--good-soft);border-color:var(--good)}
+button.opt.wrong{background:var(--bad-soft);border-color:var(--bad)}
+button.opt:disabled{cursor:default}
+.feedback{display:none;margin-top:10px;font-family:ui-sans-serif, system-ui, sans-serif;font-size:.92rem}
+.feedback.show{display:block}
+.lab{border:2px solid var(--accent);border-radius:16px;padding:16px;background:linear-gradient(180deg, #fff7ed, #fff)}
+.lab h3{margin-top:0}
+.row{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0;align-items:center;font-family:ui-sans-serif, system-ui, sans-serif}
+button.primary{background:var(--accent);color:#fff;border:none;border-radius:10px;padding:10px 14px;font-family:ui-sans-serif, system-ui, sans-serif;font-weight:700;cursor:pointer}
+button.ghost{background:#fff;color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-family:ui-sans-serif, system-ui, sans-serif;cursor:pointer;font-size:.9rem}
+#labOut{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;white-space:pre-wrap;background:#1c1917;color:#fafaf9;border-radius:12px;padding:12px;min-height:170px;margin-top:10px;overflow-x:auto}
+footer{margin-top:28px;color:var(--muted);font-size:.88rem;font-family:ui-sans-serif,system-ui,sans-serif}
+/* Mathematical subscripts/superscripts: keep indices attached to their base symbol. */
+  .formula sub, .formula sup, .mono sub, .mono sup, .math sub, .math sup{font-size:0.74em;line-height:0;position:relative;vertical-align:baseline}
+.formula sup, .mono sup, .math sup{top:-0.52em}
+.formula sub, .mono sub, .math sub{bottom:-0.20em}
+header{margin-bottom:28px}
+nav{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;margin:24px 0;font-family:ui-sans-serif,system-ui,sans-serif}
+nav a{border:1px solid var(--line);border-radius:12px;background:#fff;padding:10px 14px;text-decoration:none;font-weight:700;color:var(--teal)}
+
+.course-byline { margin: 0 0 12px; color: var(--accent); font: 1rem/1.6 ui-sans-serif, system-ui, sans-serif; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+<div class="eyebrow">DBSP 教学 · Lesson 0005 · 约 15–20 分钟</div>
+<h1>线性算子：为什么可以直接处理变化</h1>
+<p class="course-byline">教程制作 · <strong>李金懋</strong>（OceanBase）</p>
+
+<p class="lead">本课说明：有些快照算子满足“先合并两批 Z-set 再计算，等于分别计算后再把结果相加”。对这类算子，视图的本批变化可以只由输入的本批变化计算，不必先恢复完整快照。</p>
+<p class="cite">依据：<a href="https://ar5iv.labs.arxiv.org/html/2203.16684" rel="noopener" target="_blank">DBSP 论文 §2.2（Definition 2.14）与 §3（Theorem 3.3）</a></p>
+</header>
+<section>
+<h2>1. 问题：视图变化能否只看本批变化？</h2>
+<p>设 <span class="mono">O</span> 是作用于单个 Z-set 快照的算子。数据库在第 <span class="mono">t</span> 次变化前后的关系为：</p>
+<div class="formula">X<sub>t</sub> = X<sub>t−1</sub> + d<sub>t</sub></div>
+<p>这里 <span class="mono">X<sub>t−1</sub></span> 是旧快照，<span class="mono">d<sub>t</sub></span> 是本批输入变化，<span class="mono">X<sub>t</sub></span> 是新快照。令新旧视图及其变化分别为：</p>
+<div class="formula">V<sub>t−1</sub> = O(X<sub>t−1</sub>)
+V<sub>t</sub>   = O(X<sub>t</sub>)
+ΔV<sub>t</sub>   = V<sub>t</sub> − V<sub>t−1</sub></div>
+<p>朴素做法先构造 <span class="mono">X<sub>t</sub></span>、计算 <span class="mono">V<sub>t</sub></span>，最后得到视图变化 <span class="mono">ΔV<sub>t</sub></span>。先看一次具体的 filter 更新。</p>
+<h3>例：更新穿过 filter 的两个方向</h3>
+<p>令 <span class="mono">O = filter(amount ≥ 20)</span>。在第 4 个时刻，A 的金额从 10 更新为 25（向上穿过阈值，进入视图）；在第 5 个时刻，A 又从 25 更新为 15（向下穿过阈值，离开视图）。在 Z-set 中，UPDATE 表示为“删除旧行 + 插入新行”。以下以时刻为列，观察基表、视图及两种变化计算的结果。</p>
+<table>
+<thead><tr><th>对象</th><th>t = 3（更新前）</th><th>t = 4（A 进入视图）</th><th>t = 5（A 离开视图）</th></tr></thead>
+<tbody>
+<tr><td>基表快照</td><td><span class="mono">X<sub>3</sub> = {A10↦1, C30↦1}</span></td><td><span class="mono">X<sub>4</sub> = {A25↦1, C30↦1}</span></td><td><span class="mono">X<sub>5</sub> = {A15↦1, C30↦1}</span></td></tr>
+<tr><td>基表增量</td><td>—</td><td><span class="mono">d<sub>4</sub> = {A10↦−1, A25↦1}</span></td><td><span class="mono">d<sub>5</sub> = {A25↦−1, A15↦1}</span></td></tr>
+<tr><td>视图快照</td><td><span class="mono">V<sub>3</sub> = O(X<sub>3</sub>) = {C30↦1}</span></td><td><span class="mono">V<sub>4</sub> = O(X<sub>4</sub>) = {A25↦1, C30↦1}</span></td><td><span class="mono">V<sub>5</sub> = O(X<sub>5</sub>) = {C30↦1}</span></td></tr>
+<tr><td>视图增量</td><td>—</td><td><span class="mono">ΔV<sub>4</sub> = V<sub>4</sub> − V<sub>3</sub> = {A25↦1}</span></td><td><span class="mono">ΔV<sub>5</sub> = V<sub>5</sub> − V<sub>4</sub> = {A25↦−1}</span></td></tr>
+<tr><td>直接处理基表增量</td><td>—</td><td><span class="mono">O(d<sub>4</sub>) = filter({A10↦−1, A25↦1}) = {A25↦1}</span></td><td><span class="mono">O(d<sub>5</sub>) = filter({A25↦−1, A15↦1}) = {A25↦−1}</span></td></tr>
+</tbody>
+</table>
+<div class="callout good">两个方向结论一致：<span class="mono">ΔV<sub>4</sub> = O(d<sub>4</sub>)</span>（A 进入视图，得到 +A25），<span class="mono">ΔV<sub>5</sub> = O(d<sub>5</sub>)</span>（A 离开视图，得到 −A25）。按新旧视图相减得到的视图变化，恰好等于直接对基表变化运行 <span class="mono">O</span> 的结果。现在才提出要证明的一般结论：</div>
+<div class="formula">快照层要证明的结论：
+ΔV<sub>t</sub> = O(d<sub>t</sub>)
+
+流算子的朴素增量定义：
+(↑O)<sup>Δ</sup> = 𝒟 ∘ ↑O ∘ ℐ
+
+对线性算子要证明的化简结果：
+(↑O)<sup>Δ</sup> = ↑O</div>
+<p>朴素定义需要先用 <span class="mono">ℐ</span> 把变化流恢复为快照流，再逐时刻执行 <span class="mono">O</span>，最后用 <span class="mono">𝒟</span> 得到视图变化流。本课要证明：当 <span class="mono">O</span> 线性时，这三个步骤的结果等于直接对变化流逐时刻执行 <span class="mono">O</span>。</p>
+<p>接下来的问题是：为什么 filter 可以把旧快照和本批变化分开处理，并让这个等式对任意时刻都成立？</p>
+</section>
+<section>
+<h2>2. 关键条件：线性</h2>
+<p>本课所需的线性条件是：对任意两个 Z-set <span class="mono">A</span> 和 <span class="mono">B</span>，</p>
+<div class="formula">O(A + B) = O(A) + O(B)</div>
+<p>这个等式允许把“旧快照”和“本批变化”分开处理：</p>
+<div class="formula">O(X<sub>t−1</sub> + d<sub>t</sub>)
+= O(X<sub>t−1</sub>) + O(d<sub>t</sub>)</div>
+<p>随后，旧快照对应的输出可以在新旧视图之差中抵消。这正是直接计算变化所需的性质。</p>
+</section>
+<section>
+<h2>3. 推导：旧状态如何消失</h2>
+<p>从视图变化的定义开始：</p>
+<div class="formula">ΔV<sub>t</sub>
+= V<sub>t</sub> − V<sub>t−1</sub>
+  // 视图变化的定义
+
+= O(X<sub>t</sub>) − O(X<sub>t−1</sub>)
+  // 新旧视图的定义
+
+= O(X<sub>t−1</sub> + d<sub>t</sub>) − O(X<sub>t−1</sub>)
+  // X<sub>t</sub> = X<sub>t−1</sub> + d<sub>t</sub>
+
+= [O(X<sub>t−1</sub>) + O(d<sub>t</sub>)] − O(X<sub>t−1</sub>)
+  // 线性：O(A + B) = O(A) + O(B)
+
+= O(d<sub>t</sub>)
+  // 同一个旧视图项一正一负，彼此抵消</div>
+<div class="callout good">
+<strong>线性真正做的事：</strong>它把 <span class="mono">O(X<sub>t−1</sub> + d<sub>t</sub>)</span> 展开为“旧快照的输出 + 本批变化的输出”。只有这样，旧输出才能在减去 <span class="mono">V<sub>t−1</sub></span> 时显式抵消。结论不是不执行 <span class="mono">O</span>，而是不必为了得到 <span class="mono">ΔV<sub>t</sub></span> 重新执行 <span class="mono">O(X<sub>t</sub>)</span>。</div>
+</section>
+<section>
+<h2>4. 把逐时刻结论写成流算子等式</h2>
+<p>令 <span class="mono">d</span> 是任意变化流。朴素增量算子定义为：</p>
+<div class="formula">(↑O)<sup>Δ</sup> = 𝒟 ∘ ↑O ∘ ℐ</div>
+<p>令 <span class="mono">s = ℐ(d)</span>，即 <span class="mono">s</span> 是由变化流 <span class="mono">d</span> 积分得到的快照流。再令 <span class="mono">y = ↑O(s)</span>，即 <span class="mono">y</span> 是对快照流逐时刻执行 <span class="mono">O</span> 得到的视图快照流。因此，对任意逻辑时刻 <span class="mono">t</span>：</p>
+<div class="formula">(↑O)<sup>Δ</sup>(d)[t]
+= (𝒟 ∘ ↑O ∘ ℐ)(d)[t]
+  // 代入朴素增量定义
+
+= 𝒟(y)[t]
+  // s = ℐ(d)，y = ↑O(s)
+
+= y[t] − y[t−1]
+  // 𝒟 的定义：当前项减去前一项
+
+= O(s[t]) − O(s[t−1])
+  // y = ↑O(s)，所以 y[t] = O(s[t])，y[t−1] = O(s[t−1])
+
+= O(d[t])
+  // s[t] = s[t−1] + d[t]，使用第 3 节的线性推导
+
+= (↑O)(d)[t]
+  // ↑O 的定义</div>
+<p>这对任意逻辑时刻 <span class="mono">t</span> 都成立，所以两条输出流的每一项相同：</p>
+<div class="formula">(↑O)<sup>Δ</sup> = ↑O</div>
+<div class="callout purple">
+右侧必须写 <span class="mono">↑O</span>，不能只写 <span class="mono">O</span>：左、右两边都是以流为输入、以流为输出的算子；<span class="mono">O</span> 的输入和输出则是单个快照。
+</div>
+</section>
+<section>
+<h2>5. 哪些算子可以直接处理变化？</h2>
+<div class="grid-2">
+<div class="card">
+<h4>filter</h4>
+<p>对每条记录，要么保留原来的整数权重，要么把权重变为 0。因此对 Z-set 加法保持不变，是线性的。</p>
+</div>
+<div class="card">
+<h4>map / project</h4>
+<p>记录映射到输出 key 后，落在同一个 key 的权重仍按整数相加。因此即使多个输入记录映射到同一输出记录，仍保持加法。</p>
+</div>
+</div>
+<p>例如查询 <span class="mono">SELECT id FROM orders WHERE amount &gt;= 20</span> 可由 <span class="mono">filter</span> 和 <span class="mono">project</span> 组成。二者都线性时，输入变化可按原有算子顺序经过这两个算子。</p>
+<div class="callout warn">
+<strong>边界：</strong><span class="mono">distinct</span> 不满足线性：<span class="mono">A = B = {a↦1}</span> 时 <span class="mono">distinct(A+B) = {a↦1}</span> ≠ <span class="mono">distinct(A)+distinct(B) = {a↦2}</span>。<span class="mono">join</span> 是二元算子，不属于本课一元线性范畴，不能直接套 <span class="mono">(↑O)<sup>Δ</sup> = ↑O</span>。
+</div>
+</section>
+<section>
+<h2>6. 小结</h2>
+<div class="formula">X<sub>t</sub> = X<sub>t−1</sub> + d<sub>t</sub>
+        ↓
+线性：O(X<sub>t−1</sub> + d<sub>t</sub>) = O(X<sub>t−1</sub>) + O(d<sub>t</sub>)
+        ↓
+V<sub>t</sub> − V<sub>t−1</sub> 中的 O(X<sub>t−1</sub>) 抵消
+        ↓
+ΔV<sub>t</sub> = O(d<sub>t</sub>)
+        ↓
+(↑O)<sup>Δ</sup> = ↑O</div>
+<p>线性算子的增量实现只处理本批变化；它不需要先重建完整快照再运行同一个算子。</p>
+</section>
+<section>
+<h2>7. 理解检查</h2>
+<div class="quiz" data-answer="1">
+<div class="q">Q1. 主推导中，线性具体用在哪一步？</div>
+<div class="options">
+<button class="opt" data-i="0">把 ΔV<sub>t</sub> 定义为 V<sub>t</sub>−V<sub>t−1</sub></button>
+<button class="opt" data-i="1">把 O(X<sub>t−1</sub>+d<sub>t</sub>) 写成 O(X<sub>t−1</sub>)+O(d<sub>t</sub>)</button>
+<button class="opt" data-i="2">把输入变化流积分为快照流</button>
+<button class="opt" data-i="3">把输出变化写成一个 Z-set</button>
+</div>
+<div class="feedback" data-bad="线性只在把 O(旧快照 + 本批变化) 分开为两项时使用。" data-ok="对。展开后，旧快照对应的输出才会显式出现并被抵消。"></div>
+</div>
+<div class="quiz" data-answer="0">
+<div class="q">Q2. 为什么展开后 O(X<sub>t−1</sub>) 会消失？</div>
+<div class="options">
+<button class="opt" data-i="0">它在新视图中为正、在减去旧视图时为负，因此相互抵消</button>
+<button class="opt" data-i="1">因为每次事务都会清空旧快照</button>
+<button class="opt" data-i="2">因为 d<sub>t</sub> 的权重总是正数</button>
+<button class="opt" data-i="3">因为 filter 和 project 不读取任何输入</button>
+</div>
+<div class="feedback" data-bad="旧项没有消失；它以一正一负两个相同项的形式出现，因相减而抵消。" data-ok="对。线性负责暴露旧项，新旧视图之差负责抵消它。"></div>
+</div>
+<div class="quiz" data-answer="3">
+<div class="q">Q3. 为什么流算子等式右侧是 ↑O，而不是 O？</div>
+<div class="options">
+<button class="opt" data-i="0">因为 O 只用于 distinct</button>
+<button class="opt" data-i="1">因为 ↑ 会把所有 Z-set 权重变为正数</button>
+<button class="opt" data-i="2">因为 (↑O)<sup>Δ</sup> 不处理流</button>
+<button class="opt" data-i="3">因为 (↑O)<sup>Δ</sup> 和 ↑O 都作用于流，而 O 作用于单个快照</button>
+</div>
+<div class="feedback" data-bad="比较对象类型：O 是快照算子；↑O 及其增量算子都是流算子。" data-ok="对。等式两边必须具有相同的输入、输出类型。"></div>
+</div>
+<div class="quiz" data-answer="2">
+<div class="q">Q4. 为什么 distinct 不能直接使用本课的结论？</div>
+<div class="options">
+<button class="opt" data-i="0">因为 distinct 不能接受 Z-set</button>
+<button class="opt" data-i="1">因为 distinct 不会输出记录</button>
+<button class="opt" data-i="2">因为它不保持加法：distinct(A+B) 可以不同于 distinct(A)+distinct(B)</button>
+<button class="opt" data-i="3">因为它是一个二元算子</button>
+</div>
+<div class="feedback" data-bad="本课结论的前提是保持 Z-set 加法；distinct 不满足这个前提。" data-ok="对。distinct 要观察合并后的计数，因此不保持加法。"></div>
+</div>
+</section>
+
+<nav>
+<a href="0004-qdelta-chain-rule.html">← 上一课</a>
+<a href="index.html">课程目录</a>
+<a href="0006-join-bilinear-delta.html">下一课 →</a>
+</nav>
+<footer>DBSP IVM 教学文档 · 严格记号中，增量算子作用于变化流；不会把快照与变化混写。 · <a href="index.html">课程目录</a></footer>
+</div>
+<script>
+  document.querySelectorAll('.quiz').forEach(quiz => {
+    const answer = Number(quiz.dataset.answer);
+    const feedback = quiz.querySelector('.feedback');
+    quiz.querySelectorAll('button.opt').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const i = Number(btn.dataset.i);
+        quiz.querySelectorAll('button.opt').forEach(b => {
+          b.disabled = true;
+          if (Number(b.dataset.i) === answer) b.classList.add('correct');
+        });
+        if (i === answer) {
+          btn.classList.add('correct');
+          feedback.textContent = feedback.dataset.ok;
+        } else {
+          btn.classList.add('wrong');
+          feedback.textContent = feedback.dataset.bad;
+        }
+        feedback.classList.add('show');
+      });
+    });
+  });
+
+</script>
+</body>
+</html>

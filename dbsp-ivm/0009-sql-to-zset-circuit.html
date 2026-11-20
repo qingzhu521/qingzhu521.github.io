@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width,initial-scale=1" name="viewport"/>
+<title>第 9 课 · SQL 快照查询到有类型的 Z-set 电路</title>
+<style>
+:root{--bg:#f4f1eb;--paper:#fffdf8;--ink:#1c1917;--muted:#57534e;--line:#e8e0d4;--accent:#9a3412;--accent-soft:#ffedd5;--teal:#0f766e;--teal-soft:#ccfbf1;--good:#166534;--good-soft:#dcfce7;--bad:#991b1b;--bad-soft:#fee2e2;--purple:#6d28d9;--purple-soft:#ede9fe;--code:#1c1917;--shadow:0 10px 28px rgba(28,25,23,.06)}
+*{box-sizing:border-box}
+body{margin:0;color:var(--ink);font-family:"Iowan Old Style","Palatino Linotype",Palatino,"Songti SC","Noto Serif SC",serif;line-height:1.68;background:radial-gradient(900px 480px at 0 0,#ffedd5 0,transparent 55%),radial-gradient(800px 420px at 100% 10%,#ccfbf155 0,transparent 50%),var(--bg)}
+.wrap{max-width:920px;margin:0 auto;padding:36px 18px 72px}
+.eyebrow,.cite,nav,footer{margin-top:28px;color:var(--muted);font-size:.88rem;font-family:ui-sans-serif,system-ui,sans-serif}
+.eyebrow{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);font-weight:800;font-family:ui-sans-serif,system-ui,sans-serif}
+h1{font-size:clamp(1.75rem,3vw,2.35rem);line-height:1.2;margin:10px 0 12px}
+h2{margin:0 0 11px;font-size:1.25rem}
+h3{margin:20px 0 8px;font-size:1.06rem}
+p{margin:0 0 12px}
+ul,ol{margin:0 0 12px;padding-left:1.3em}
+li{margin:.3em 0}
+a{color:var(--teal)}
+.lead{color:var(--muted);font-size:1.07rem}
+.cite{font-size:.88rem;color:var(--muted)}
+section{background:var(--paper);border:1px solid var(--line);border-radius:18px;padding:22px;margin:18px 0;box-shadow:var(--shadow)}
+.callout{border-left:4px solid var(--teal);padding:12px 14px;border-radius:0 12px 12px 0;margin:14px 0;font-family:ui-sans-serif,system-ui,sans-serif;font-size:.95rem;background:var(--teal-soft)}
+.callout.warn{border-left-color:var(--accent);background:var(--accent-soft)}
+.callout.good{border-left-color:var(--good);background:var(--good-soft)}
+.callout.bad{border-left-color:var(--bad);background:var(--bad-soft)}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.91rem}
+.formula{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--code);color:#fafaf9;padding:15px 17px;border-radius:12px;overflow:auto;margin:12px 0;line-height:1.6;white-space:pre-wrap}
+table{width:100%;margin:10px 0 14px;font-size:.9rem;font-family:ui-sans-serif,system-ui,sans-serif;border-collapse:collapse}
+th,td{border:1px solid var(--line);padding:8px 10px;vertical-align:top}
+th{background:#faf6f0;padding:8px 10px}
+.quiz{border:1px solid var(--line);border-radius:14px;padding:14px;margin:12px 0;background:#fff}
+.q{font:700 .96rem ui-sans-serif,system-ui;margin-bottom:9px}
+.options{display:grid;gap:8px}
+.opt{font:.92rem ui-sans-serif,system-ui;text-align:left;border:1px solid var(--line);background:#fff;border-radius:10px;padding:10px 12px;cursor:pointer}
+.opt:hover{border-color:var(--accent)}
+.opt.correct{background:var(--good-soft);border-color:var(--good)}
+.opt.wrong{background:var(--bad-soft);border-color:var(--bad)}
+.feedback{display:none;margin-top:9px;font:.91rem ui-sans-serif,system-ui}
+.feedback.show{display:block}
+nav{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;margin:24px 0;font-family:ui-sans-serif,system-ui,sans-serif}
+nav a{border:1px solid var(--line);border-radius:12px;background:#fff;padding:10px 14px;text-decoration:none;font-weight:700;color:var(--teal)}
+footer{margin-top:28px;color:var(--muted);font-size:.88rem;font-family:ui-sans-serif,system-ui,sans-serif}
+@media(max-width:740px){.wrap{padding:28px 14px 56px}section{padding:18px}table{font-size:.84rem}th,td{padding:8px;border:1px solid var(--line)}nav{flex-direction:column}}}
+.formula sub,.formula sup,.mono sub,.mono sup{font-size:.74em;line-height:0;position:relative;vertical-align:baseline}
+.formula sup,.mono sup{top:-.52em}
+.formula sub,.mono sub{bottom:-.20em}
+header{margin-bottom:28px}
+.callout.purple{border-left-color:var(--purple);background:var(--purple-soft)}
+
+.card{border:1px solid var(--line);border-radius:12px;padding:13px;background:#fffcf7}
+.course-byline { margin: 0 0 12px; color: var(--accent); font: 1rem/1.6 ui-sans-serif, system-ui, sans-serif; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+<div class="eyebrow">DBSP 教学 · Lesson 0009 · 约 30 分钟</div>
+<h1>SQL 快照查询到有类型的 Z-set 电路</h1>
+<p class="course-byline">教程制作 · <strong>李金懋</strong>（OceanBase）</p>
+
+<p class="lead">本课固定一条 SQL 和一张输入快照，把查询逐层翻译为 filter、project、grouping、每组 SUM 与结果行构造组成的快照电路。</p>
+<p class="cite">依据：DBSP 论文 §4 的关系算子到 Z-set 算子翻译，以及 §7.2–§7.4 对 aggregation、indexed Z-set、grouping 与 GROUP BY-AGGREGATE 的扩展。</p>
+</header>
+
+<section>
+<h2>1. 问题：SQL 文本怎样变成可执行的电路？</h2>
+<p>数据库可以直接解释 SQL 文本，但 DBSP 的代数变换需要另一种输入：节点是有明确语义的算子，边上是有明确类型的值。下面这条查询同时包含行过滤、列投影、分组和聚合，编译器必须先把这些责任拆开。</p>
+<div class="formula">SELECT region, SUM(amount) AS total
+FROM orders
+WHERE amount &gt;= 20
+GROUP BY region;</div>
+<p>本课只讨论这条查询对<strong>一张完整快照</strong>的计算结果，不引入变化流或跨批状态。</p>
+</section>
+
+<section>
+<h2>2. 先按 SQL 语义直接算一次</h2>
+<p>输入记录类型为 <span class="mono">Order = (OrderId, Region, Amount)</span>。固定快照 <span class="mono">X ∈ ℤ[Order]</span> 如下；权重属于完整订单记录。</p>
+<table>
+<thead><tr><th>记录</th><th>order_id</th><th>region</th><th>amount</th><th>权重</th></tr></thead>
+<tbody>
+<tr><td>A</td><td>A</td><td>East</td><td>10</td><td>1</td></tr>
+<tr><td>B</td><td>B</td><td>East</td><td>20</td><td>1</td></tr>
+<tr><td>C</td><td>C</td><td>West</td><td>30</td><td>1</td></tr>
+<tr><td>D</td><td>D</td><td>East</td><td>25</td><td>1</td></tr>
+</tbody>
+</table>
+<p><span class="mono">WHERE</span> 去掉 A；East 组留下 B20、D25，West 组留下 C30。因此直接 SQL 结果是：</p>
+<div class="formula">East: 20 + 25 = 45
+West: 30 = 30
+
+V = {(East,45)↦1, (West,30)↦1}</div>
+<p>后面的电路翻译必须得到完全相同的 <span class="mono">V ∈ ℤ[Result]</span>，其中 <span class="mono">Result = (Region, Total)</span>。</p>
+</section>
+
+<section>
+<h2>3. 定义电路中的类型与算子</h2>
+<p>先定义投影后的记录类型 <span class="mono">Pair = (Region, Amount)</span>。四层算子的类型是：</p>
+<table>
+<thead><tr><th>层</th><th>快照算子类型</th><th>作用</th></tr></thead>
+<tbody>
+<tr><td>过滤</td><td class="mono">F : ℤ[Order] → ℤ[Order]</td><td>只保留 amount ≥ 20 的订单，保留记录权重</td></tr>
+<tr><td>投影</td><td class="mono">P : ℤ[Order] → ℤ[Pair]</td><td>把订单映射为 (region, amount)，相同输出的权重相加</td></tr>
+<tr><td>分组</td><td class="mono">G<sub>p</sub> : ℤ[Pair] → ℤ[Pair][Region]</td><td>按 <span class="mono">p(region,amount)=region</span> 建立索引</td></tr>
+<tr><td>分组聚合</td><td class="mono">Agg<sub>a</sub> : ℤ[Pair][Region] → ℤ[Result]</td><td>对每个 grouping 求和并构造结果行</td></tr>
+</tbody>
+</table>
+<p><span class="mono">ℤ[Pair][Region]</span> 是 indexed Z-set：它可看作从每个 <span class="mono">Region</span> 键到一个 <span class="mono">ℤ[Pair]</span> 子 Z-set 的有限映射。这里的 “East 桶” 不是无类型容器，而是 East 键对应的完整子 Z-set。</p>
+<div class="formula">Q : ℤ[Order] → ℤ[Result]
+Q = Agg<sub>a</sub> ∘ G<sub>p</sub> ∘ P ∘ F</div>
+<p>等式依据是 SQL 的逻辑处理顺序：先 <span class="mono">WHERE</span>，再准备分组所需字段，再 <span class="mono">GROUP BY</span>，最后为各组产生聚合结果。</p>
+</section>
+
+<section>
+<h2>4. SQL 集合算子的 DBSP 实现速查（论文 Table 1）</h2>
+<p>上一节为本课的 GROUP BY 查询定义了 <span class="mono">F</span>、<span class="mono">P</span>、<span class="mono">G<sub>p</sub></span> 与 <span class="mono">Agg<sub>a</sub></span>。更一般地，论文 §4.2 的 Table 1 给出关系集合算子到 Z-set 电路的翻译：假定全局输入是集合（每个元素权重为 0 或 1），电路输出也必须是集合。</p>
+<table>
+<thead><tr><th>SQL / 关系算子</th><th>SQL 语义（集合）</th><th>DBSP 实现（Z-set 电路）</th></tr></thead>
+<tbody>
+<tr><td>selection <span class="mono">σ<sub>P</sub></span></td><td class="mono">SELECT * FROM R WHERE P</td><td class="mono">filter<sub>P</sub>(R)</td></tr>
+<tr><td>projection <span class="mono">π<sub>A</sub></span></td><td class="mono">SELECT DISTINCT A FROM R</td><td class="mono">distinct(project<sub>A</sub>(R))</td></tr>
+<tr><td>union</td><td class="mono">R UNION S</td><td class="mono">distinct(R + S)</td></tr>
+<tr><td>intersection</td><td class="mono">R INTERSECT S</td><td><span class="mono">R ⋈ S</span>（对全部公共列等值连接）</td></tr>
+<tr><td>difference</td><td class="mono">R EXCEPT S</td><td class="mono">distinct(R − S)</td></tr>
+<tr><td>equi-join <span class="mono">⋈</span></td><td class="mono">R JOIN S ON R.c1 = S.c2</td><td class="mono">join<sub>c1=c2</sub>(R, S)</td></tr>
+<tr><td>distinct</td><td class="mono">SELECT DISTINCT * FROM R</td><td class="mono">distinct(R)</td></tr>
+</tbody>
+</table>
+<p class="cite">出处：DBSP 论文 Table 1（Implementation of SQL relational set operators in DBSP）及 §4.2 正文；输入 <span class="mono">R</span>、<span class="mono">S</span> 视为集合，输出亦为集合。</p>
+
+<div class="callout warn">
+<strong>规则一：集合语义算子末尾挂 distinct。</strong>
+投影、并、差可能把权重加到大于 1；末尾 <span class="mono">distinct</span> 把正权重压回 1、非正压回 0。它不是免费节点：需对照旧权重判断存在性边界（第 7 课的 <span class="mono">H</span>），编译器会合并相邻 <span class="mono">distinct</span>。
+</div>
+
+<div class="callout good">
+<strong>规则二：intersection 是 equi-join 的特例；difference 用权重取负。</strong>
+<ul style="margin:8px 0 0;padding-left:1.2em">
+<li><span class="mono">R INTERSECT S</span>：对全部公共列等值连接（<span class="mono">R ⋈ S</span>）；集合输入下权重 ≤ 1，不必再挂 <span class="mono">distinct</span>。</li>
+<li><span class="mono">R EXCEPT S</span>：<span class="mono">S</span> 权重取负与 <span class="mono">R</span> 相加，再 <span class="mono">distinct</span> 保留权重 &gt; 0 者。</li>
+</ul>
+</div>
+
+<div class="formula">// 论文 §4.2 给出的典型等式
+R ∪ S = distinct(R + S)
+R \ S = distinct(R − S)
+(R × S)((x,y)) = R[x] × S[y]
+  // 笛卡尔积按完整配对 (x,y) 相乘权重；等值连接是其加谓词的特例</div>
+
+<p><strong>与本课 bag 示例的关系：</strong>Table 1 约定的是<strong>集合</strong>语义，故投影／并／差末尾有 <span class="mono">distinct</span>。本课固定查询保留 SQL <strong>bag</strong> 语义（见第 8 节），电路是 <span class="mono">Q = Agg<sub>a</sub> ∘ G<sub>p</sub> ∘ P ∘ F</span>，不在 <span class="mono">P</span> 后插入 <span class="mono">distinct</span>；两种约定不矛盾，差别只在是否要求输出为集合。</p>
+</section>
+
+<section>
+<h2>5. 展开分组聚合，不使用黑盒宏</h2>
+<h3>5.1 每个子 Z-set 上的 SUM</h3>
+<p>对任意组内子 Z-set <span class="mono">s ∈ ℤ[Pair]</span>，定义：</p>
+<div class="formula">a<sub>SUM</sub>(s)
+= Σ amount(x) × s[x]
+  // 依据：论文 §7.2 的加权 SUM 定义</div>
+<p><span class="mono">s[x]</span> 是完整 <span class="mono">Pair</span> 记录 <span class="mono">x</span> 的整数权重。若要判断一个组是否有输入记录，还可计算 <span class="mono">a<sub>COUNT</sub>(s)=Σ s[x]</span>。当前快照中所有组都非空，SUM 手算已足够；COUNT 在组可能消失时用于区分“空组”和“总和恰为 0 的非空组”。</p>
+
+<h3>5.2 makeset 与每组函数 a</h3>
+<p><span class="mono">a<sub>SUM</sub></span> 产生标量，而查询输出必须是 Z-set 关系。论文用 <span class="mono">makeset</span> 把一个值包装成权重为 1 的 singleton Z-set：</p>
+<div class="formula">makeset : Result → ℤ[Result]
+makeset(v) = {v↦1}
+  // 依据：论文 §7.2 的 makeset 定义
+
+a(k,s) =
+  ∅                                  若 a<sub>COUNT</sub>(s)=0
+  makeset((k, a<sub>SUM</sub>(s)))   若 a<sub>COUNT</sub>(s)&gt;0
+  // 依据：SQL GROUP BY 只为非空组产生结果行；当前输入是非负 bag 快照</div>
+
+<h3>5.3 Agg<sub>a</sub> 合并各组结果</h3>
+<p>对 indexed Z-set <span class="mono">g ∈ ℤ[Pair][Region]</span>，论文 §7.4 的 nested relation aggregation 对每个 grouping 独立调用 <span class="mono">a</span>，再把结果相加：</p>
+<div class="formula">Agg<sub>a</sub>(g)
+= Σ<sub>k∈Region</sub> a(k, g[k])
+  // 依据：论文 §7.4 的 Agg<sub>a</sub> 定义；不存在的键由 a 映射为零元 ∅</div>
+<p>因此最终聚合层的内部次序是：<span class="mono">每组 a<sub>SUM</sub> → makeset → Agg<sub>a</sub> 合并</span>，每一层都已明确展开。</p>
+</section>
+
+<section>
+<h2>6. 用同一快照逐层手算</h2>
+<h3>6.1 Filter：ℤ[Order] → ℤ[Order]</h3>
+<div class="formula">F(X)
+= {B(East,20)↦1, C(West,30)↦1, D(East,25)↦1}
+  // 依据：A 的 amount=10 不满足谓词；其余记录满足，权重不变</div>
+
+<h3>6.2 Project：ℤ[Order] → ℤ[Pair]</h3>
+<div class="formula">P(F(X))
+= {(East,20)↦1, (West,30)↦1, (East,25)↦1}
+  // 依据：P 只保留 region 与 amount，并把输入权重带到输出</div>
+
+<h3>6.3 Grouping：ℤ[Pair] → ℤ[Pair][Region]</h3>
+<div class="formula">g = G<sub>p</sub>(P(F(X)))
+
+g[East] = {(East,20)↦1, (East,25)↦1}
+  // 依据：两条记录的 p 值都是 East
+
+g[West] = {(West,30)↦1}
+  // 依据：该记录的 p 值是 West</div>
+
+<h3>6.4 每组 a<sub>SUM</sub> 与 makeset</h3>
+<div class="formula">a<sub>SUM</sub>(g[East])
+= 20×1 + 25×1
+= 45
+  // 第一个等号：a<sub>SUM</sub> 的加权和定义；第二个等号：整数运算
+
+a(East,g[East])
+= makeset((East,45))
+= {(East,45)↦1}
+  // 第一个等号：每组函数 a 的定义；第二个等号：makeset 的定义
+
+a<sub>SUM</sub>(g[West])
+= 30×1
+= 30
+  // 第一个等号：a<sub>SUM</sub> 的定义；第二个等号：整数运算
+
+a(West,g[West])
+= makeset((West,30))
+= {(West,30)↦1}
+  // 依据依次为 a 与 makeset 的定义</div>
+
+<h3>6.5 Agg<sub>a</sub>：ℤ[Pair][Region] → ℤ[Result]</h3>
+<div class="formula">Q(X)
+= Agg<sub>a</sub>(g)
+  // 依据：Q 的复合定义以及 g = G<sub>p</sub>(P(F(X)))
+
+= a(East,g[East]) + a(West,g[West])
+  // 依据：Agg<sub>a</sub> 对各 grouping 求和的定义
+
+= {(East,45)↦1, (West,30)↦1}
+  // 依据：Z-set 加法合并两个不同的完整结果记录</div>
+<div class="callout good"><strong>验证：</strong>电路结果 <span class="mono">Q(X)</span> 与第 2 节直接按 SQL 语义得到的 <span class="mono">V</span> 相同。</div>
+</section>
+
+<section>
+<h2>7. 完整快照电路与每条边</h2>
+<div class="formula">X ∈ ℤ[Order]
+  │
+  ▼ F
+F(X) ∈ ℤ[Order]
+  │
+  ▼ P
+P(F(X)) ∈ ℤ[Pair]
+  │
+  ▼ G<sub>p</sub>
+g ∈ ℤ[Pair][Region]
+  │   每个键 k 读取 g[k] ∈ ℤ[Pair]
+  ▼ Agg<sub>a</sub>，其中 a = makeset ∘ (k,a<sub>SUM</sub>)
+Q(X) ∈ ℤ[Result]</div>
+<p>SQL 文本由此变成了可组合、可检查类型的快照电路 <span class="mono">Q</span>。每条边的对象以及每个节点的责任都已确定。</p>
+</section>
+
+<section>
+<h2>8. 边界：本课电路保留 SQL bag 语义</h2>
+<ul>
+<li><strong>map/project 不隐式去重。</strong>若两条订单都映射为同一个完整 <span class="mono">(region,amount)</span>，输出 Z-set 中该记录的权重相加。</li>
+<li><strong>权重属于完整记录。</strong>region 相同但 amount 不同的 <span class="mono">(East,20)</span> 与 <span class="mono">(East,25)</span> 是两个元素，不会只因分组键相同就合并为一条记录。</li>
+<li><strong>本查询没有显式 DISTINCT。</strong>因此电路中不额外插入 distinct 节点；GROUP BY 最终每个非空组产生一条结果行来自每组 makeset，不是 project 自动去重。这与第 4 节 Table 1 的集合语义约定不同：Table 1 在投影／并／差末尾挂 <span class="mono">distinct</span> 是为了输出集合；本课示例按 SQL bag 语义保留多重性。</li>
+<li><strong>本课结论只描述完整快照。</strong>这里没有输入变化、删除传播、跨批状态或端到端增量化。</li>
+</ul>
+</section>
+
+<section>
+<h2>9. 小结</h2>
+<ol>
+<li>SQL 必须先变成有类型的 Z-set 快照电路，才能参与后续代数变换。</li>
+<li>论文 Table 1 给出集合算子到 Z-set 电路的翻译；投影／并／差末尾挂 <span class="mono">distinct</span>，intersection 是全列 equi-join，difference 为 <span class="mono">distinct(R − S)</span>。</li>
+<li>本查询保留 bag 语义，电路是 <span class="mono">Q = Agg<sub>a</sub> ∘ G<sub>p</sub> ∘ P ∘ F</span>，不在 <span class="mono">P</span> 后插入 <span class="mono">distinct</span>。</li>
+<li><span class="mono">G<sub>p</sub></span> 产生 indexed Z-set，每个 region 键对应一个组内子 Z-set。</li>
+<li>聚合层已展开为每组 <span class="mono">a<sub>SUM</sub></span>、<span class="mono">makeset</span> 与 <span class="mono">Agg<sub>a</sub></span>，没有使用黑盒宏。</li>
+<li>逐层手算得到 East45、West30，与直接 SQL 结果一致。</li>
+</ol>
+</section>
+
+<section>
+<h2>10. 理解检查</h2>
+<div class="quiz" data-answer="1" data-explain="WHERE、project、grouping、每组聚合与结果行构造依次对应 F、P、分组算子和聚合算子。">
+<div class="q">本课查询的快照电路顺序是什么？</div>
+<div class="options"><button class="opt">Agg<sub>a</sub> → F → P → G<sub>p</sub></button><button class="opt">F → P → G<sub>p</sub> → Agg<sub>a</sub></button><button class="opt">P → distinct → F → Agg<sub>a</sub></button></div><div class="feedback"></div>
+</div>
+<div class="quiz" data-answer="2" data-explain="indexed Z-set 把每个键映射到一个组内子 Z-set。">
+<div class="q">g[East] 的对象类型是什么？</div>
+<div class="options"><button class="opt">一个裸整数</button><button class="opt">一段 SQL 文本</button><button class="opt">ℤ[Pair] 子 Z-set</button></div><div class="feedback"></div>
+</div>
+<div class="quiz" data-answer="0" data-explain="map 保留 bag 语义，相同完整输出记录的权重会相加。">
+<div class="q">两条输入记录被 P 映射成相同 Pair 时会怎样？</div>
+<div class="options"><button class="opt">相同 Pair 的权重相加</button><button class="opt">自动 distinct</button><button class="opt">编译失败</button></div><div class="feedback"></div>
+</div>
+<div class="quiz" data-answer="1" data-explain="每组 SUM 先产生标量总和，makeset 再把 (region,total) 包装成结果 Z-set 中的一行。">
+<div class="q">哪一步把标量总和变成 SQL 结果关系中的行？</div>
+<div class="options"><button class="opt">G<sub>p</sub></button><button class="opt">makeset</button><button class="opt">F</button></div><div class="feedback"></div>
+</div>
+</section>
+
+<nav>
+<a href="0008-incremental-aggregation.html">← 上一课</a>
+<a href="index.html">课程目录</a>
+<a href="0010-end-to-end-incrementalization.html">下一课 →</a>
+</nav>
+<footer>DBSP IVM 教学文档 · 本课只讨论 SQL 完整快照到有类型 Z-set 快照电路的翻译。 · <a href="index.html">课程目录</a></footer>
+</div>
+<script>
+document.querySelectorAll('.quiz').forEach(q=>{
+  q.querySelectorAll('.opt').forEach((b,i)=>b.addEventListener('click',()=>{
+    if(q.dataset.done)return;
+    q.dataset.done='1';
+    const ok=i===Number(q.dataset.answer);
+    b.classList.add(ok?'correct':'wrong');
+    q.querySelectorAll('.opt').forEach((x,j)=>{
+      x.disabled=true;
+      if(j===Number(q.dataset.answer))x.classList.add('correct');
+    });
+    const f=q.querySelector('.feedback');
+    f.textContent=(ok?'✓ ':'✗ ')+q.dataset.explain;
+    f.classList.add('show');
+  }));
+});
+</script>
+</body>
+</html>

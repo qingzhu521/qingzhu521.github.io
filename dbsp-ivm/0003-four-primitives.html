@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>第 3 课 · 四个原语 ↑ / z⁻¹ / ℐ / 𝒟</title>
+<style>
+:root{--bg:#f4f1eb;--paper:#fffdf8;--ink:#1c1917;--muted:#57534e;--line:#e8e0d4;--accent:#9a3412;--accent-soft:#ffedd5;--teal:#0f766e;--teal-soft:#ccfbf1;--good:#166534;--good-soft:#dcfce7;--bad:#991b1b;--bad-soft:#fee2e2;--purple:#6d28d9;--purple-soft:#ede9fe;--code:#1c1917;--shadow:0 10px 28px rgba(28,25,23,.06)}
+*{box-sizing:border-box}
+body{margin:0;color:var(--ink);font-family:"Iowan Old Style","Palatino Linotype",Palatino,"Songti SC","Noto Serif SC",serif;line-height:1.68;background:radial-gradient(900px 480px at 0 0,#ffedd5 0,transparent 55%),radial-gradient(800px 420px at 100% 10%,#ccfbf155 0,transparent 50%),var(--bg)}
+.wrap{max-width:920px;margin:0 auto;padding:36px 18px 72px}
+.eyebrow{font-family:ui-sans-serif,system-ui,sans-serif;font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+h1{font-size:clamp(1.75rem,3vw,2.35rem);line-height:1.2;margin:10px 0 12px}
+.lead{color:var(--muted);font-size:1.07rem}
+.cite{font-family:ui-sans-serif, system-ui, sans-serif;font-size:.88rem;color:var(--muted)}
+a{color:var(--teal)}
+section{background:var(--paper);border:1px solid var(--line);border-radius:18px;padding:22px;margin:18px 0;box-shadow:var(--shadow)}
+h2{margin:0 0 11px;font-size:1.25rem}
+h3{margin:20px 0 8px;font-size:1.06rem}
+p{margin:0 0 12px}
+ul, ol{margin:0 0 12px;padding-left:1.25em}
+li{margin:.25em 0}
+table{width:100%;border-collapse:collapse;margin:10px 0 14px;font-size:.9rem;font-family:ui-sans-serif,system-ui,sans-serif}
+th, td{border:1px solid var(--line);padding:8px 10px}
+th{background:#faf6f0;padding:8px 10px}
+.mono{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;font-size:.9rem}
+.formula{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--code);color:#fafaf9;padding:15px 17px;border-radius:12px;overflow:auto;margin:12px 0;line-height:1.6;white-space:pre-wrap}
+.callout{border-left:4px solid var(--teal);padding:12px 14px;background:var(--teal-soft);border-radius:0 12px 12px 0;margin:14px 0;font-family:ui-sans-serif,system-ui,sans-serif;font-size:.95rem}
+.callout.warn{border-left-color:var(--accent);background:var(--accent-soft)}
+.callout.good{border-left-color:var(--good);background:var(--good-soft)}
+.callout.bad{border-left-color:var(--bad);background:var(--bad-soft)}
+.callout.purple{border-left-color:var(--purple);background:var(--purple-soft)}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.grid-4{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width: 720px){.grid-2, .grid-4{grid-template-columns:1fr}}}
+.card{border:1px solid var(--line);border-radius:12px;padding:13px;background:#fffcf7}
+.card h4{margin:0 0 8px;font-family:ui-sans-serif, system-ui, sans-serif;font-size:.8rem;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.prim{display:inline-block;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;font-weight:700;background:var(--accent-soft);color:var(--accent);border-radius:8px;padding:1px 8px}
+.pos{color:var(--good);font-weight:700}
+.neg{color:var(--bad);font-weight:700}
+.quiz{border:1px solid var(--line);border-radius:14px;padding:14px;margin:12px 0;background:#fff}
+.quiz .q{font-family:ui-sans-serif, system-ui, sans-serif;font-weight:700;margin-bottom:10px}
+.options{display:grid;gap:8px}
+button.opt{text-align:left;border:1px solid var(--line);background:#fff;border-radius:10px;padding:10px 12px;cursor:pointer;font:inherit;font-family:ui-sans-serif, system-ui, sans-serif;font-size:.92rem}
+button.opt:hover{border-color:var(--accent)}
+button.opt.correct{background:var(--good-soft);border-color:var(--good)}
+button.opt.wrong{background:var(--bad-soft);border-color:var(--bad)}
+button.opt:disabled{cursor:default}
+.feedback{display:none;margin-top:10px;font-family:ui-sans-serif, system-ui, sans-serif;font-size:.92rem}
+.feedback.show{display:block}
+.lab{border:2px solid var(--accent);border-radius:16px;padding:16px;background:linear-gradient(180deg, #fff7ed, #fff)}
+.lab h3{margin-top:0}
+.row{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0;align-items:center;font-family:ui-sans-serif, system-ui, sans-serif}
+.row label{display:flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--line);border-radius:999px;padding:6px 12px;font-size:.9rem}
+.row input[type="text"]{border:1px solid var(--line);border-radius:8px;padding:6px 8px;font:inherit;min-width:220px;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace}
+button.primary{background:var(--accent);color:#fff;border:none;border-radius:10px;padding:10px 14px;font-family:ui-sans-serif, system-ui, sans-serif;font-weight:700;cursor:pointer}
+button.ghost{background:#fff;color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-family:ui-sans-serif, system-ui, sans-serif;cursor:pointer;font-size:.9rem}
+#labOut{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;white-space:pre-wrap;background:#1c1917;color:#fafaf9;border-radius:12px;padding:12px;min-height:160px;margin-top:10px}
+.tag{display:inline-block;background:#fff;border:1px solid var(--line);border-radius:999px;padding:2px 8px;font-size:12px;font-family:ui-sans-serif,system-ui,sans-serif;color:var(--muted)}
+footer{margin-top:28px;color:var(--muted);font-size:.88rem;font-family:ui-sans-serif,system-ui,sans-serif}
+.stream-row td:first-child{font-weight:700;white-space:nowrap;width:90px}
+.chip{display:inline-block;border-radius:8px;padding:2px 8px;margin:1px 2px;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;font-size:.82rem;background:#f5f5f4;border:1px solid var(--line)}
+.chip.zero{color:#a8a29e}
+.chip.delta{background:#ecfdf5;border-color:#86efac}
+.chip.snap{background:#eff6ff;border-color:#93c5fd}
+.chip.delay{background:#faf5ff;border-color:#d8b4fe}
+.pipeline{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-family:ui-sans-serif, system-ui, sans-serif;margin:12px 0}
+.pipeline .box{border:2px solid var(--ink);border-radius:12px;padding:10px 14px;background:#fff;font-weight:700}
+.pipeline .box.i{border-color:var(--teal);color:var(--teal);background:var(--teal-soft)}
+.pipeline .box.q{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.pipeline .box.d{border-color:var(--purple);color:var(--purple);background:var(--purple-soft)}
+.pipeline .arrow{color:var(--muted);font-size:1.2rem}
+/* Mathematical subscripts/superscripts: keep indices attached to their base symbol. */
+  .formula sub, .formula sup, .mono sub, .mono sup, .math sub, .math sup{font-size:0.74em;line-height:0;position:relative;vertical-align:baseline}
+.formula sup, .mono sup, .math sup{top:-0.52em}
+.formula sub, .mono sub, .math sub{bottom:-0.20em}
+.diagram{margin:14px 0 8px;padding:14px 12px 10px;border:1px solid var(--line);border-radius:14px;background:linear-gradient(180deg,#fffefb 0%,#faf6f0 100%);overflow-x:auto}
+.diagram svg{display:block;width:100%;height:auto;max-width:100%;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.diagram-cap{margin:0 0 4px;font:.86rem ui-sans-serif,system-ui,sans-serif;color:var(--muted);line-height:1.45}
+details.ascii-ref{margin:10px 0 12px;border:1px dashed var(--line);border-radius:12px;padding:8px 12px;background:#fffcf7;font-family:ui-sans-serif,system-ui,sans-serif;font-size:.9rem}
+details.ascii-ref summary{cursor:pointer;color:var(--muted);font-family:ui-sans-serif,system-ui,sans-serif;font-weight:700}
+details.ascii-ref .formula{margin-top:10px}
+header{margin-bottom:28px}
+nav{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;margin:24px 0;font-family:ui-sans-serif,system-ui,sans-serif}
+nav a{border:1px solid var(--line);border-radius:12px;background:#fff;padding:10px 14px;text-decoration:none;font-weight:700;color:var(--teal)}
+details{border:1px solid var(--line);border-radius:12px;background:#fff;padding:11px 13px;margin:10px 0}
+
+.course-byline { margin: 0 0 12px; color: var(--accent); font: 1rem/1.6 ui-sans-serif, system-ui, sans-serif; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+<div class="eyebrow">DBSP 教学 · Lesson 0003 · 约 18–22 分钟</div>
+<h1>四个原语：流上的基本运算</h1>
+<p class="course-byline">教程制作 · <strong>李金懋</strong>（OceanBase）</p>
+
+<p class="lead">本课定义 DBSP 的四个流原语：Lift ↑、Delay z⁻¹、Integration ℐ 和 Differentiation 𝒟。它们分别处理逐时刻计算、历史状态、变化累积和快照差分。</p>
+<p class="cite">
+        依据：
+        <a href="https://ar5iv.labs.arxiv.org/html/2203.16684" rel="noopener" target="_blank">DBSP §2–§3 Streams and operators</a>
+        ·
+        <a href="https://arxiv.org/abs/2203.16684" rel="noopener" target="_blank">arXiv:2203.16684</a>
+</p>
+</header>
+<section>
+<h2>1. 输入对象：Z-set 流</h2>
+<p>四个原语处理的对象不是单张表，而是按逻辑时间排列的 Z-set 流。以下直接使用已定义的快照流 <span class="mono">s</span> 与变化流 <span class="mono">Δ</span>。</p>
+<div class="formula">流 s：时间 t = 0, 1, 2, …  →  值 s[t]
+流中每个时间步的值类型都是 Z-set</div>
+<div class="callout">
+  四个原语都是 <strong>流 → 流</strong> 的变换：输入一条流，输出另一条流。下面用订单表示例逐个定义它们。
+</div>
+</section>
+<section>
+<h2>2. 原语 ① Lift ↑ ：由快照算子定义流算子</h2>
+<p><strong>定义：</strong>给定一个处理<strong>单个快照</strong>的算子 <span class="mono">f</span>，Lift 定义相应的<strong>流算子</strong>。对任意逻辑时刻 <span class="mono">t</span>，它只将 <span class="mono">f</span> 应用于该时刻的输入快照。</p>
+<div class="callout">
+<strong>示例表：</strong>表是 <span class="mono">orders(id, amount)</span>。
+        缩写 <span class="mono">A:10</span> = 整行 <span class="mono">(id=A, amount=10)</span>；
+        <span class="mono">amount</span> 就是订单金额这一列，不是新概念，也不是 Z-set 的权重。
+        记录权重写为 <span class="mono">↦1</span>（出现次数）。
+      </div>
+<div class="formula">给定快照算子 f : ℤ[A] → ℤ[B]。对任意逻辑时刻 t：
+(↑f)(s)[t]  =  f(s[t])
+// 输出流在时刻 t 的值 = 把 f 应用于输入流在同一时刻 t 的值
+// 不读取 s[t−1]、s[t+1] 或任何其他时刻的值
+
+例：f = filter(amount ≥ 20)
+    // 即 SQL: SELECT * FROM orders WHERE amount &gt;= 20
+    // 只保留「金额 ≥ 20」的行；A:10 的 amount=10 被滤掉
+
+s[1] = {A:10↦1, B:20↦1}          →  (↑f)(s)[1] = {B:20↦1}
+s[2] = {A:10↦1, B:20↦1, C:30↦1}  →  {B:20↦1, C:30↦1}
+s[3] = {A:10↦1, C:30↦1}          →  {C:30↦1}
+s[4] = {A:25↦1, C:30↦1}          →  {A:25↦1, C:30↦1} // A:25 已跨过阈值，进入输出</div>
+<div class="grid-2">
+<div class="card">
+<h4>它会什么</h4>
+<ul>
+<li>把 SQL 算子变成「流上的算子」</li>
+<li>无状态：当前输出只看当前输入</li>
+<li>复合干净：<span class="mono">↑(g∘f) = ↑g ∘ ↑f</span>（见下）</li>
+</ul>
+</div>
+<div class="card">
+<h4>它不会什么</h4>
+<ul>
+<li>记不住上一时刻（没有记忆）</li>
+<li>不会做「累计」或「差分」</li>
+<li>单独用它，没法从变化重建快照</li>
+</ul>
+</div>
+</div>
+<div class="callout">
+<strong>符号速读：</strong><span class="mono">∘</span> = 函数复合（先内后外），<span class="mono">(g∘f)(x) = g(f(x))</span>。<br/>
+<span class="mono">↑(g∘f) = ↑g ∘ ↑f</span>：<em>先合成再 lift = 先 lift 再串联</em>，故 <span class="mono">filter → project</span> 可逐个 lift。
+      </div>
+<div class="callout warn"><strong>Lift 的时间语义：</strong>对任意时刻 <span class="mono">t</span>，输出只读取同一时刻的输入 <span class="mono">s[t]</span>。它把普通查询嵌入流电路，但本身不保存历史、也不解决增量。</div>
+</section>
+<section>
+<h2>3. 原语 ② Delay z⁻¹ ：记住上一步</h2>
+<p><strong>人话：</strong>输出比输入<strong>晚一个时间步</strong>。t=0 吐零元（空 Z-set）；t≥1 吐「上一时刻的输入」。</p>
+<div class="formula">s        = [ s₀,  s₁,  s₂,  s₃,  s₄, ... ]
+z⁻¹(s)   = [  0,  s₀,  s₁,  s₂,  s₃, ... ]
+
+使用订单快照（从 t=1 起写，t=0 为空）：
+s      : t₀=∅ | t₁={A10,B20} | t₂={A10,B20,C30} | t₃={A10,C30} | t₄={A25,C30}
+z⁻¹(s): t₀=∅ | t₁=∅         | t₂={A10,B20}     | t₃={A10,B20,C30}| t₄={A10,C30}</div>
+<table>
+<thead>
+<tr><th>t</th><th>s[t]（快照）</th><th>z⁻¹(s)[t]</th><th>读法</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td class="mono">∅</td>
+<td class="mono">∅</td>
+<td>约定：初始延迟输出 0</td>
+</tr>
+<tr>
+<td>1</td>
+<td class="mono">{A10↦1, B20↦1}</td>
+<td class="mono">∅</td>
+<td>「上一时刻」还是空</td>
+</tr>
+<tr>
+<td>2</td>
+<td class="mono">{A10↦1, B20↦1, C30↦1}</td>
+<td class="mono">{A10↦1, B20↦1}</td>
+<td>吐出 t=1 的快照</td>
+</tr>
+<tr>
+<td>3</td>
+<td class="mono">{A10↦1, C30↦1}</td>
+<td class="mono">{A10↦1, B20↦1, C30↦1}</td>
+<td>吐出 t=2 的快照</td>
+</tr>
+<tr>
+<td>4</td>
+<td class="mono">{A25↦1, C30↦1}</td>
+<td class="mono">{A10↦1, C30↦1}</td>
+<td>吐出 t=3 的快照</td>
+</tr>
+</tbody>
+</table>
+<div class="callout good">
+<strong>工程直觉：</strong><span class="prim">z⁻¹</span> 就是一枚<strong>寄存器 / 上一版本快照缓存</strong>。
+        任何需要读取上一时刻输入的流算子，都可以通过 z⁻¹ 获得该值。
+        <strong>它是 DBSP 里唯一的状态原语。</strong>
+</div>
+<p class="cite">记号来自 DSP 的 Z 变换：乘以 z⁻¹ 表示延迟一个样本。这里不依赖 Z 变换知识，只需按“晚一步”理解。</p>
+</section>
+<section>
+<h2>4. 原语 ③ Integration ℐ ：变化流 → 快照流</h2>
+<p><strong>人话：</strong>把到目前为止的所有变化<strong>累加</strong>起来，得到当前完整表。它就是流上的前缀和。</p>
+<div class="formula">ℐ(Δ)[t]  =  Δ[0] + Δ[1] + … + Δ[t]
+         =  Σ<sub>i=0..t</sub> Δ[i]     // Z-set 加法：逐 key 加权重</div>
+<p class="callout"><strong>边界：</strong><span class="mono">t=0</span> 也是真实的第一个样本。初始变化 <span class="mono">d<sub>0</sub></span> 负责产生初始快照；从空库开始时通常 <span class="mono">d<sub>0</sub>=∅</span>。</p>
+<h3>用手算过的 Δ 走一遍</h3>
+<table class="stream-row">
+<thead>
+<tr><th>t</th><th>Δ[t]（变化）</th><th>ℐ(Δ)[t] = 累计和（快照）</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td class="mono">∅</td>
+<td class="mono">∅</td>
+</tr>
+<tr>
+<td>1</td>
+<td class="mono"><span class="pos">{A10↦1, B20↦1}</span></td>
+<td class="mono">{A10↦1, B20↦1}</td>
+</tr>
+<tr>
+<td>2</td>
+<td class="mono"><span class="pos">{C30↦1}</span></td>
+<td class="mono">{A10↦1, B20↦1, C30↦1}</td>
+</tr>
+<tr>
+<td>3</td>
+<td class="mono"><span class="neg">{B20↦−1}</span></td>
+<td class="mono">{A10↦1, C30↦1}</td>
+</tr>
+<tr>
+<td>4</td>
+<td class="mono"><span class="neg">{A10↦−1}</span> + <span class="pos">{A25↦1}</span></td>
+<td class="mono">{A25↦1, C30↦1}</td>
+</tr>
+</tbody>
+</table>
+<div class="callout">
+        实现上不必每次从 t=0 重加：用递推
+        <span class="mono">ℐ(Δ)[t] = ℐ(Δ)[t−1] + Δ[t]</span>，
+        而 <span class="mono">ℐ(Δ)[t−1]</span> 恰好可以用 <span class="prim">z⁻¹</span> 存住。
+        所以积分内部就藏着一枚 delay。
+      </div>
+<div class="formula">令 s = ℐ(Δ)，即积分输出的快照流。
+ℐ(Δ) = fix α. (Δ + z⁻¹(α))</div>
+<figure class="diagram">
+<svg viewBox="0 0 720 220" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="int-title int-desc">
+  <title id="int-title">ℐ 的反馈定义电路</title>
+  <desc id="int-desc">输入 Δ 与 z⁻¹ 反馈经加法节点合并得到输出 s；s 经 z⁻¹ 反馈回加法节点</desc>
+  <defs>
+    <marker id="int-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M2 1.5 L9 5 L2 8.5 Z" fill="#57534e"/>
+    </marker>
+    <marker id="int-arrA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M2 1.5 L9 5 L2 8.5 Z" fill="#9a3412"/>
+    </marker>
+  </defs>
+
+  <!-- input Δ -->
+  <rect x="36" y="72" width="56" height="36" rx="10" fill="#fff" stroke="#0f766e" stroke-width="1.6"/>
+  <text x="64" y="95" text-anchor="middle" font-size="16" font-weight="700" fill="#0f766e">Δ</text>
+  <text x="64" y="128" text-anchor="middle" font-size="10" fill="#0f766e" font-family="ui-sans-serif,system-ui,sans-serif">变化流</text>
+
+  <!-- arrow to + -->
+  <path d="M92 90 H168" stroke="#57534e" stroke-width="1.6" marker-end="url(#int-arr)"/>
+
+  <!-- addition node -->
+  <circle cx="198" cy="90" r="24" fill="#fff" stroke="#1c1917" stroke-width="1.6"/>
+  <text x="198" y="97" text-anchor="middle" font-size="22" font-weight="700" fill="#0f766e">+</text>
+  <text x="198" y="132" text-anchor="middle" font-size="10" fill="#57534e" font-family="ui-sans-serif,system-ui,sans-serif">加法节点</text>
+
+  <!-- arrow to s -->
+  <path d="M222 90 H320" stroke="#57534e" stroke-width="1.6" marker-end="url(#int-arr)"/>
+
+  <!-- output s / ℐ box -->
+  <rect x="324" y="68" width="88" height="44" rx="12" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.6"/>
+  <text x="368" y="88" text-anchor="middle" font-size="15" font-weight="700" fill="#0f766e">s = ℐ(Δ)</text>
+  <text x="368" y="104" text-anchor="middle" font-size="10" fill="#9a3412">快照流</text>
+
+  <!-- continue label -->
+  <path d="M412 90 H500" stroke="#57534e" stroke-width="1.6" marker-end="url(#int-arr)"/>
+  <text x="540" y="95" text-anchor="middle" font-size="13" font-weight="700" fill="#1c1917">输出 s</text>
+
+  <!-- fork for feedback -->
+  <circle cx="450" cy="90" r="3.5" fill="#57534e"/>
+
+  <!-- feedback down then left through z⁻¹ then up to + -->
+  <path d="M450 90 V168 H368" fill="none" stroke="#9a3412" stroke-width="1.6"/>
+  <rect x="318" y="152" width="56" height="32" rx="8" fill="#ffedd5" stroke="#9a3412" stroke-width="1.6"/>
+  <text x="346" y="173" text-anchor="middle" font-size="14" font-weight="700" fill="#9a3412">z⁻¹</text>
+  <path d="M318 168 H198 V114" fill="none" stroke="#9a3412" stroke-width="1.6" marker-end="url(#int-arrA)"/>
+
+  <text x="270" y="196" text-anchor="middle" font-size="11" fill="#9a3412" font-family="ui-sans-serif,system-ui,sans-serif">反馈：z⁻¹(s) ＝ 上一时刻快照</text>
+
+  <!-- equation chip -->
+  <rect x="500" y="140" width="190" height="52" rx="10" fill="#fffdf8" stroke="#e8e0d4"/>
+  <text x="595" y="162" text-anchor="middle" font-size="12" fill="#1c1917">s[t] = Δ[t] + z⁻¹(s)[t]</text>
+  <text x="595" y="180" text-anchor="middle" font-size="11" fill="#57534e" font-family="ui-sans-serif,system-ui,sans-serif">t=0 时 z⁻¹(s)[0]=0</text>
+</svg>
+<p class="diagram-cap">图：论文 §2.3 中 ℐ 的反馈定义。输入变化 Δ 与延迟反馈 z⁻¹(s) 在加法节点合并，得到当前快照 s；输出再经 z⁻¹ 回到加法节点，实现递推 s[t]=s[t−1]+Δ[t]。</p>
+</figure>
+<details class="ascii-ref"><summary>ASCII 反馈电路对照</summary>
+<div class="formula">Δ ──→ (+) ──→ s
+        ↑       │
+        └─ z⁻¹(s) ─┘
+
+反馈支路中的 z⁻¹(s) 与后文的 z⁻¹(s) 是同一个对象：
+它是输出快照流 s 延迟一个时间步后的流。
+
+因此，对任意 t：
+s[t] = Δ[t] + z⁻¹(s)[t]
+     = Δ[t] + s[t−1]     // t ≥ 1
+并且 s[0] = Δ[0]，因为 z⁻¹(s)[0] = 0。</div>
+</details>
+</section>
+<section>
+<h2>5. 原语 ④ Differentiation 𝒟 ：快照流 → 变化流</h2>
+<p><strong>人话：</strong>相邻快照相减。即“本时刻快照减去上一时刻快照”。</p>
+<div class="formula">𝒟(s)[0]  =  s[0]
+𝒟(s)[t]  =  s[t] − s[t−1]     // t &gt; 0
+         =  s[t] + (− s[t−1])  // Z-set 减法</div>
+<p>而 <span class="mono">s[t−1]</span> 就是 <span class="mono">z⁻¹(s)[t]</span>，所以：</p>
+<div class="formula">𝒟(s)  =  s − z⁻¹(s)
+// 每个时刻：当前快照减去「延迟后的快照」</div>
+<h3>从快照反推变化</h3>
+<table class="stream-row">
+<thead>
+<tr><th>t</th><th>s[t]</th><th>z⁻¹(s)[t]</th><th>𝒟(s)[t] = s − z⁻¹(s)</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td class="mono">∅</td>
+<td class="mono">∅</td>
+<td class="mono">∅</td>
+</tr>
+<tr>
+<td>1</td>
+<td class="mono">{A10,B20}</td>
+<td class="mono">∅</td>
+<td class="mono"><span class="pos">{A10↦1, B20↦1}</span></td>
+</tr>
+<tr>
+<td>2</td>
+<td class="mono">{A10,B20,C30}</td>
+<td class="mono">{A10,B20}</td>
+<td class="mono"><span class="pos">{C30↦1}</span></td>
+</tr>
+<tr>
+<td>3</td>
+<td class="mono">{A10,C30}</td>
+<td class="mono">{A10,B20,C30}</td>
+<td class="mono"><span class="neg">{B20↦−1}</span></td>
+</tr>
+<tr>
+<td>4</td>
+<td class="mono">{A25,C30}</td>
+<td class="mono">{A10,C30}</td>
+<td class="mono"><span class="neg">{A10↦−1}</span> + <span class="pos">{A25↦1}</span></td>
+</tr>
+</tbody>
+</table>
+<div class="callout good">
+        和原变化流<strong>逐项相同</strong>。符号 𝒟 只是给「相邻快照相减」起了个名字。
+      </div>
+</section>
+<section>
+<h2>6. 最重要的等式：ℐ 与 𝒟 互逆</h2>
+<div class="formula">对任意变化流 Δ：
+𝒟(ℐ(Δ)) = Δ
+// 先把变化累加成快照，再做相邻快照之差，得到原来的变化流 Δ
+
+对任意快照流 s：
+ℐ(𝒟(s)) = s
+// 先做相邻快照之差，再把这些变化累加，得到原来的快照流 s
+
+采用定义 𝒟(s)[0] = s[0]，因此 t=0 的边界已包含在算子定义中。</div>
+<div class="formula">逐行验证 𝒟(ℐ(Δ)) = Δ：
+  t = 0:  𝒟(ℐ(Δ))[0] = ℐ(Δ)[0] = Δ[0]
+  t &gt; 0:  𝒟(ℐ(Δ))[t]
+          = (Δ[0]+...+Δ[t]) − (Δ[0]+...+Δ[t−1])
+          = Δ[t]
+
+逐行验证 ℐ(𝒟(s)) = s：
+  ℐ(𝒟(s))[t]
+  = s[0] + (s[1]−s[0]) + ... + (s[t]−s[t−1])
+  = s[t]                      // 中间项两两抵消</div>
+</section>
+<section>
+<h2>7. 四件套对照卡</h2>
+<table>
+<thead>
+<tr><th>符号</th><th>名字</th><th>人话</th><th>有状态？</th><th>你已经会的操作</th></tr>
+</thead>
+<tbody>
+<tr>
+<td class="mono">↑f</td>
+<td>Lift</td>
+<td>每个时刻各自跑 f</td>
+<td>否</td>
+<td>filter / project 套在整条流上</td>
+</tr>
+<tr>
+<td class="mono">z⁻¹</td>
+<td>Delay</td>
+<td>输出 = 上一时刻输入</td>
+<td><strong>是</strong>（唯一状态原语）</td>
+<td>缓存上一版快照</td>
+</tr>
+<tr>
+<td class="mono">ℐ</td>
+<td>Integration</td>
+<td>变化累加 → 快照</td>
+<td>是（内含 z⁻¹）</td>
+<td>前缀和</td>
+</tr>
+<tr>
+<td class="mono">𝒟</td>
+<td>Differentiation</td>
+<td>快照差分 → 变化</td>
+<td>是（内含 z⁻¹）</td>
+<td>相邻相减</td>
+</tr>
+</tbody>
+</table>
+</section>
+<section>
+<h2>8. 小结</h2>
+<ul>
+<li><span class="tag">↑f</span> 逐时刻套普通算子，无记忆</li>
+<li><span class="tag">z⁻¹</span> 晚一步 = 上一版缓存，<strong>唯一状态原语</strong></li>
+<li><span class="tag">ℐ</span> 变化累加 → 快照（前缀和）</li>
+<li><span class="tag">𝒟</span> 快照差分 → 变化（s − z⁻¹(s)）</li>
+<li><span class="tag">𝒟(ℐ(Δ)) = Δ；ℐ(𝒟(s)) = s</span> → 两种流表示可相互还原</li>
+</ul>
+</section>
+<section>
+<h2>9. 理解检查</h2>
+<div class="quiz" data-answer="1">
+<div class="q">Q1. Lift ↑f 的本质是？</div>
+<div class="options">
+<button class="opt" data-i="0">把流延迟一个时间步</button>
+<button class="opt" data-i="1">把普通函数 f 变成「每个时刻各自应用一次」的流算子</button>
+<button class="opt" data-i="2">把变化流累加成快照流</button>
+<button class="opt" data-i="3">把快照流变成变化流</button>
+</div>
+<div class="feedback" data-bad="Lift = 逐时刻套 f；延迟是 z⁻¹，积分是 ℐ，微分是 𝒟。" data-ok="对：↑f 无状态，(↑f)(s)[t] = f(s[t])。"></div>
+</div>
+<div class="quiz" data-answer="2">
+<div class="q">Q2. z⁻¹(s) 在 t=3 输出什么？</div>
+<div class="options">
+<button class="opt" data-i="0">s[3]</button>
+<button class="opt" data-i="1">s[4]</button>
+<button class="opt" data-i="2">s[2]（上一时刻的值）</button>
+<button class="opt" data-i="3">s[0]+s[1]+s[2]+s[3]</button>
+</div>
+<div class="feedback" data-bad="z⁻¹(s)[t] = s[t−1]（t&gt;0）；t=0 为 0。" data-ok="对：delay 吐上一时刻；t=3 吐 s[2]。t=0 吐 0。"></div>
+</div>
+<div class="quiz" data-answer="0">
+<div class="q">Q3. ℐ(Δ)[t] 的定义是？</div>
+<div class="options">
+<button class="opt" data-i="0">Δ[0]+Δ[1]+…+Δ[t]（前缀和 / 累加）</button>
+<button class="opt" data-i="1">Δ[t] − Δ[t−1]</button>
+<button class="opt" data-i="2">只取 Δ[t] 里权重大于 0 的部分</button>
+<button class="opt" data-i="3">把 Δ 延迟一步</button>
+</div>
+<div class="feedback" data-bad="ℐ 是累加到 t 的所有变化；相邻差是 𝒟。" data-ok="对：积分 = 变化的累计和 = 当前快照。"></div>
+</div>
+<div class="quiz" data-answer="3">
+<div class="q">Q4. 为什么说 ℐ 与 𝒟 互逆很重要？</div>
+<div class="options">
+<button class="opt" data-i="0">因为它让 join 变成 O(1)</button>
+<button class="opt" data-i="1">因为它消灭了所有非线性算子</button>
+<button class="opt" data-i="2">因为它证明 SQL 图灵完备</button>
+<button class="opt" data-i="3">因为它保证快照流与变化流可以无损互转；把快照转成变化再转回快照，结果不会改变</button>
+</div>
+<div class="feedback" data-bad="关键是信息可逆 / 语义保真，不是性能银弹。" data-ok="对。互逆保证两种流表示可以无损互转。"></div>
+</div>
+<div class="quiz" data-answer="1">
+<div class="q">Q5. DBSP 里「唯一的状态原语」是？</div>
+<div class="options">
+<button class="opt" data-i="0">↑ Lift</button>
+<button class="opt" data-i="1">z⁻¹ Delay</button>
+<button class="opt" data-i="2">distinct</button>
+<button class="opt" data-i="3">filter</button>
+</div>
+<div class="feedback" data-bad="状态 = 记住历史；只有 delay 直接做这件事。" data-ok="对。ℐ 和 𝒟 的状态都可以用 z⁻¹ 构造；Lift 无状态。"></div>
+</div>
+</section>
+
+<nav>
+<a href="0002-why-zsets.html">← 上一课</a>
+<a href="index.html">课程目录</a>
+<a href="0004-qdelta-chain-rule.html">下一课 →</a>
+</nav>
+<footer>DBSP IVM 教学文档 · 严格记号中，增量算子作用于变化流；不会把快照与变化混写。 · <a href="index.html">课程目录</a></footer>
+</div>
+<script>
+  document.querySelectorAll('.quiz').forEach(quiz => {
+    const answer = Number(quiz.dataset.answer);
+    const feedback = quiz.querySelector('.feedback');
+    quiz.querySelectorAll('button.opt').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const i = Number(btn.dataset.i);
+        quiz.querySelectorAll('button.opt').forEach(b => {
+          b.disabled = true;
+          if (Number(b.dataset.i) === answer) b.classList.add('correct');
+        });
+        if (i === answer) {
+          btn.classList.add('correct');
+          feedback.textContent = feedback.dataset.ok;
+        } else {
+          btn.classList.add('wrong');
+          feedback.textContent = feedback.dataset.bad;
+        }
+        feedback.classList.add('show');
+      });
+    });
+  });
+
+</script>
+</body>
+</html>

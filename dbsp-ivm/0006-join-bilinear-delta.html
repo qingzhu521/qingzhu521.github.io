@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN"><head><meta charset="utf-8"/><meta content="width=device-width,initial-scale=1" name="viewport"/><title>第 6 课 · Join 的三项增量：从双线性一步步展开</title><style>
+:root{--bg:#f4f1eb;--paper:#fffdf8;--ink:#1c1917;--muted:#57534e;--line:#e8e0d4;--accent:#9a3412;--accent-soft:#ffedd5;--teal:#0f766e;--teal-soft:#ccfbf1;--good:#166534;--good-soft:#dcfce7;--bad:#991b1b;--bad-soft:#fee2e2;--purple:#6d28d9;--purple-soft:#ede9fe;--code:#1c1917;--shadow:0 10px 28px rgba(28,25,23,.06)}
+*{box-sizing:border-box}
+body{margin:0;color:var(--ink);font-family:"Iowan Old Style","Palatino Linotype",Palatino,"Songti SC","Noto Serif SC",serif;line-height:1.68;background:radial-gradient(900px 480px at 0 0,#ffedd5 0,transparent 55%),radial-gradient(800px 420px at 100% 10%,#ccfbf155 0,transparent 50%),var(--bg)}
+.wrap{max-width:920px;margin:0 auto;padding:36px 18px 72px}
+.eyebrow,.cite,nav,footer{margin-top:28px;color:var(--muted);font-size:.88rem;font-family:ui-sans-serif,system-ui,sans-serif}
+.eyebrow{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);font-weight:800;font-family:ui-sans-serif,system-ui,sans-serif}
+h1{font-size:clamp(1.75rem,3vw,2.35rem);line-height:1.2;margin:10px 0 12px}
+h2{margin:0 0 11px;font-size:1.25rem}
+h3{margin:20px 0 8px;font-size:1.06rem}
+p{margin:0 0 12px}
+ul,ol{margin:0 0 12px;padding-left:1.3em}
+li{margin:.3em 0}
+a{color:var(--teal)}
+.lead{color:var(--muted);font-size:1.07rem}
+.cite{font-size:.88rem;color:var(--muted)}
+section{background:var(--paper);border:1px solid var(--line);border-radius:18px;padding:22px;margin:18px 0;box-shadow:var(--shadow)}
+.callout{border-left:4px solid var(--teal);padding:12px 14px;border-radius:0 12px 12px 0;margin:14px 0;font-family:ui-sans-serif,system-ui,sans-serif;font-size:.95rem;background:var(--teal-soft)}
+.callout.warn{border-left-color:var(--accent);background:var(--accent-soft)}
+.callout.good{border-left-color:var(--good);background:var(--good-soft)}
+.callout.bad{border-left-color:var(--bad);background:var(--bad-soft)}
+.callout.purple{border-left-color:var(--purple);background:var(--purple-soft)}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.91rem}
+.formula{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--code);color:#fafaf9;padding:15px 17px;border-radius:12px;overflow:auto;margin:12px 0;line-height:1.6;white-space:pre-wrap}
+.tag{display:inline-block;background:#fff;border:1px solid var(--line);border-radius:999px;padding:2px 8px;color:var(--muted);font-size:12px;font-family:ui-sans-serif,system-ui,sans-serif}
+table{width:100%;margin:10px 0 14px;font-size:.9rem;font-family:ui-sans-serif,system-ui,sans-serif;border-collapse:collapse}
+th,td{border:1px solid var(--line);padding:8px 10px;vertical-align:top}
+th{background:#faf6f0;padding:8px 10px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.card{border:1px solid var(--line);border-radius:12px;padding:13px;background:#fffcf7}
+.card h4{margin:0 0 8px;font:800 .78rem ui-sans-serif,system-ui;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.quiz{border:1px solid var(--line);border-radius:14px;padding:14px;margin:12px 0;background:#fff}
+.q{font:700 .96rem ui-sans-serif,system-ui;margin-bottom:9px}
+.options{display:grid;gap:8px}
+.opt{font:.92rem ui-sans-serif,system-ui;text-align:left;border:1px solid var(--line);background:#fff;border-radius:10px;padding:10px 12px;cursor:pointer}
+.opt:hover{border-color:var(--accent)}
+.opt.correct{background:var(--good-soft);border-color:var(--good)}
+.opt.wrong{background:var(--bad-soft);border-color:var(--bad)}
+.feedback{display:none;margin-top:9px;font:.91rem ui-sans-serif,system-ui}
+.feedback.show{display:block}
+.lab{border:2px solid var(--accent);border-radius:16px;padding:16px;background:linear-gradient(180deg,#fff7ed,#fff)}
+button.run{border:0;border-radius:10px;padding:10px 14px;background:var(--accent);color:white;font:700 .92rem ui-sans-serif,system-ui;cursor:pointer}
+.labout{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre-wrap;background:#1c1917;color:#fafaf9;border-radius:12px;padding:13px;min-height:130px;margin-top:10px}
+.nav{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;margin:24px 0;font-family:ui-sans-serif,system-ui,sans-serif}
+nav a{border:1px solid var(--line);border-radius:12px;background:#fff;padding:10px 14px;text-decoration:none;font-weight:700;color:var(--teal)}
+footer{margin-top:28px;color:var(--muted);font-size:.88rem;font-family:ui-sans-serif,system-ui,sans-serif}
+@media(max-width:740px){.grid{grid-template-columns:1fr}.wrap{padding:28px 14px 56px}section{padding:18px}table{font-size:.84rem}th,td{padding:8px;border:1px solid var(--line)}.nav{flex-direction:column}}}
+/* Mathematical subscripts/superscripts: keep indices attached to their base symbol. */
+  .formula sub, .formula sup, .mono sub, .mono sup, .math sub, .math sup{font-size:0.74em;line-height:0;position:relative;vertical-align:baseline}
+.formula sup, .mono sup, .math sup{top:-0.52em}
+.formula sub, .mono sub, .math sub{bottom:-0.20em}
+header{margin-bottom:28px}
+
+.course-byline { margin: 0 0 12px; color: var(--accent); font: 1rem/1.6 ui-sans-serif, system-ui, sans-serif; }
+</style></head><body><div class="wrap"><header><div class="eyebrow">DBSP 教学 · Lesson 0006 · 约 25–30 分钟</div><h1>Join 的三项增量：从双线性一步步展开</h1>
+<p class="course-byline">教程制作 · <strong>李金懋</strong>（OceanBase）</p>
+<p class="lead">本课处理双线性 join 的增量化：从新结果减旧结果展开出“变化×旧状态、旧状态×变化、变化×变化”三项。</p><p class="cite">依据：DBSP 论文关于线性、双线性、非线性算子以及递归电路的增量化定义与定理。</p></header>
+<section><h2>1. 核心问题：为什么 join 不是“只 join 两批变化”？</h2><p>线性算子的完整增量等式是：<span class="mono">(↑O)<sup>Δ</sup>=↑O</span>。join 不同：一条新来的左表记录，不但可能匹配本批新右记录，还可能匹配数据库中早已存在的右记录。</p><div class="callout warn"><strong>推导目标：</strong>从 <span class="mono">L<sub>new</sub>=L<sub>old</sub>+ΔL</span> 和 <span class="mono">R<sub>new</sub>=R<sub>old</sub>+ΔR</span> 出发，逐行推出 join 的三项 delta，并解释为什么第三项不能漏。</div><table><tr><th>对象</th><th>含义</th></tr><tr><td class="mono">L<sub>old</sub>, R<sub>old</sub></td><td>本批事务开始前，左右输入的完整 Z-set</td></tr><tr><td class="mono">ΔL, ΔR</td><td>本批左右输入变化，权重可正可负</td></tr><tr><td class="mono">L<sub>new</sub>, R<sub>new</sub></td><td>应用本批变化后的完整输入</td></tr><tr><td class="mono">V<sub>old</sub>, V<sub>new</sub></td><td>旧、新 join 结果</td></tr><tr><td class="mono">ΔV</td><td><span class="mono">V<sub>new</sub>−V<sub>old</sub></span>，下游真正需要应用的变化</td></tr></table></section>
+<section><h2>2. 为什么 inner join 是双线性的？</h2><p>本课公式中的 <span class="mono">⋈</span> 指 <strong>inner join</strong>。先明确下面公式中每个记号的含义：</p><table><tr><th>记号</th><th>含义</th></tr><tr><td class="mono">L、R</td><td>左右两个输入 Z-set。它们都可以看成“记录 → 整数权重”的函数。</td></tr><tr><td class="mono">l、r</td><td>分别取自左、右输入的一条具体记录。</td></tr><tr><td class="mono">L(l)、R(r)</td><td>记录 <span class="mono">l</span>、<span class="mono">r</span> 在各自 Z-set 中的整数权重。</td></tr><tr><td class="mono">(L ⋈ R)(l,r)</td><td>配对记录 <span class="mono">(l,r)</span> 在 join 输出 Z-set 中的权重。</td></tr></table><p>如果 <span class="mono">l</span> 与 <span class="mono">r</span> 满足连接条件，它们会形成一条输出记录，其权重等于输入权重相乘；如果不满足连接条件，这个配对不会出现在输出中，权重为 0：</p><div class="formula">(L ⋈ R)(l,r) = L(l) × R(r)   // l 与 r 满足连接条件
+(L ⋈ R)(l,r) = 0             // l 与 r 不满足连接条件</div><p>例如 <span class="mono">L(l)=2</span>、<span class="mono">R(r)=3</span>，且二者满足连接条件，那么输出配对 <span class="mono">(l,r)</span> 的权重为 <span class="mono">2×3=6</span>。这里的括号表示“查询这条输出记录的权重”，不是再次执行一次 join。</p><p>现在固定右输入 <span class="mono">R</span>，把左输入 <span class="mono">A+B</span> 代入。对任意一对满足条件的记录 <span class="mono">(l,r)</span>：</p><div class="formula">((A + B) ⋈ R)(l,r)
+= (A(l) + B(l)) × R(r)
+= A(l) × R(r) + B(l) × R(r)
+= (A ⋈ R)(l,r) + (B ⋈ R)(l,r)</div><p>最后一个等式对每一对输出记录都成立，因此：</p><div class="formula">(A + B) ⋈ R = (A ⋈ R) + (B ⋈ R)</div><p>固定左输入时完全相同：</p><div class="formula">L ⋈ (C + D) = (L ⋈ C) + (L ⋈ D)</div><p>inner join 对左、右输入分别保持加法，因此称为<strong>双线性</strong>。当左右两边同时写成“旧状态 + 本批变化”时，两次使用分配律会产生四个组合。</p></section>
+<section><h2>3. 三项公式：每个等号依据是什么？</h2><div class="formula">已知：
+L<sub>new</sub> = L<sub>old</sub> + ΔL
+R<sub>new</sub> = R<sub>old</sub> + ΔR
+V<sub>old</sub> = L<sub>old</sub> ⋈ R<sub>old</sub>
+V<sub>new</sub> = L<sub>new</sub> ⋈ R<sub>new</sub>
+
+定义输出变化：
+ΔV = V<sub>new</sub> − V<sub>old</sub>
+
+代入 V<sub>new</sub> 和 V<sub>old</sub>：
+ΔV = (L<sub>new</sub> ⋈ R<sub>new</sub>) − (L<sub>old</sub> ⋈ R<sub>old</sub>)
+
+代入两个新状态：
+   = (L<sub>old</sub> + ΔL) ⋈ (R<sub>old</sub> + ΔR) − L<sub>old</sub> ⋈ R<sub>old</sub>
+
+第一次使用双线性，对左输入展开：
+   = L<sub>old</sub> ⋈ (R<sub>old</sub> + ΔR)
+     + ΔL ⋈ (R<sub>old</sub> + ΔR)
+     − L<sub>old</sub> ⋈ R<sub>old</sub>
+
+第二次使用双线性，对右输入展开：
+   = L<sub>old</sub> ⋈ R<sub>old</sub>
+     + L<sub>old</sub> ⋈ ΔR
+     + ΔL ⋈ R<sub>old</sub>
+     + ΔL ⋈ ΔR
+     − L<sub>old</sub> ⋈ R<sub>old</sub>
+
+消去一正一负的旧结果：
+ΔV = ΔL ⋈ R<sub>old</sub>
+   + L<sub>old</sub> ⋈ ΔR
+   + ΔL ⋈ ΔR</div><div class="grid"><div class="card"><h4>ΔL ⋈ R<sub>old</sub></h4><p>本批左变化与事务前已经存在的右状态匹配。</p></div><div class="card"><h4>L<sub>old</sub> ⋈ ΔR</h4><p>事务前已经存在的左状态与本批右变化匹配。</p></div><div class="card"><h4>ΔL ⋈ ΔR</h4><p>同一批事务内，左右两边的变化彼此匹配。</p></div><div class="card"><h4>为什么没有旧×旧</h4><p>它同时出现在新结果展开式和被减去的旧结果中，恰好抵消。</p></div></div><div class="callout good">公式中的 <span class="mono">R<sub>old</sub></span>、<span class="mono">L<sub>old</sub></span> 必须是<strong>应用本批变化之前</strong>的状态。若改用 new 状态却仍加第三项，就会重复计数。</div><h3>2.1 把单个时刻的公式写成流算子形式</h3><p>令 <span class="mono">a</span>、<span class="mono">b</span> 分别是左右输入的变化流。先定义 inner join 对流的逐时刻作用：</p><div class="formula">(↑⋈)(x,y)[t] = x[t] ⋈ y[t]</div><p>对任意逻辑时刻 <span class="mono">t</span>，本批变化和本批开始前的状态分别是：</p><div class="formula">ΔL<sub>t</sub> = a[t]
+ΔR<sub>t</sub> = b[t]
+L<sub>t−1</sub> = z⁻¹(ℐ(a))[t]
+R<sub>t−1</sub> = z⁻¹(ℐ(b))[t]</div><p>因此，单个时刻的三项公式为：</p><div class="formula">ΔV<sub>t</sub>
+= ΔL<sub>t</sub> ⋈ R<sub>t−1</sub>
++ L<sub>t−1</sub> ⋈ ΔR<sub>t</sub>
++ ΔL<sub>t</sub> ⋈ ΔR<sub>t</sub></div><p>把这个等式同时写在整条流上，就得到 inner join 的增量流算子：</p><div class="formula">(↑⋈)<sup>Δ</sup>(a,b)
+= (↑⋈)(a, z⁻¹(ℐ(b)))
++ (↑⋈)(z⁻¹(ℐ(a)), b)
++ (↑⋈)(a,b)</div><table><tr><th>流公式中的一项</th><th>在逻辑时刻 t 取值</th></tr><tr><td class="mono">(↑⋈)(a, z⁻¹(ℐ(b)))</td><td class="mono">ΔL<sub>t</sub> ⋈ R<sub>t−1</sub></td></tr><tr><td class="mono">(↑⋈)(z⁻¹(ℐ(a)), b)</td><td class="mono">L<sub>t−1</sub> ⋈ ΔR<sub>t</sub></td></tr><tr><td class="mono">(↑⋈)(a,b)</td><td class="mono">ΔL<sub>t</sub> ⋈ ΔR<sub>t</sub></td></tr></table><div class="callout good">流公式不是另一套规则。它只是把每个逻辑时刻都成立的三项等式，统一写成一个从两条输入变化流到输出变化流的算子等式。</div></section>
+<section><h2>4. 删除：三项如何得到正确结果？</h2><div class="callout warn"><strong>先澄清“权重”的对象：</strong>Z-set 的权重属于一条<strong>完整记录</strong>，不是属于连接键。两条记录即使 <span class="mono">customer_id</span> 相同，只要其他字段不同，就是两个不同的 Z-set 元素，不能合并成同一条记录计数。只有完整字段都相同的记录，才会合并为同一个元素并累加权重。</div><p>下面不用重复记录，而是使用多条连接键相同、内容不同的记录，观察同一批两侧删除时三项如何得到正确结果。</p><p>左侧有三条不同的订单，右侧有两条不同的客户标签；它们的连接键都是 <span class="mono">customer_id=7</span>：</p><table><tr><th>左侧完整记录</th><th>右侧完整记录</th></tr><tr><td class="mono">l<sub>1</sub>=(order_id=O1, customer_id=7, amount=50)</td><td class="mono">r<sub>1</sub>=(customer_id=7, tag=VIP)</td></tr><tr><td class="mono">l<sub>2</sub>=(order_id=O2, customer_id=7, amount=80)</td><td class="mono">r<sub>2</sub>=(customer_id=7, tag=NEW)</td></tr><tr><td class="mono">l<sub>3</sub>=(order_id=O3, customer_id=7, amount=120)</td><td>—</td></tr></table><div class="formula">L<sub>old</sub> = {l<sub>1</sub>↦1, l<sub>2</sub>↦1, l<sub>3</sub>↦1}
+R<sub>old</sub> = {r<sub>1</sub>↦1, r<sub>2</sub>↦1}</div><p>inner join 会产生六条<strong>不同的配对记录</strong>，每条权重都是 1：</p><div class="formula">V<sub>old</sub> = {
+  (l<sub>1</sub>,r<sub>1</sub>)↦1, (l<sub>1</sub>,r<sub>2</sub>)↦1,
+  (l<sub>2</sub>,r<sub>1</sub>)↦1, (l<sub>2</sub>,r<sub>2</sub>)↦1,
+  (l<sub>3</sub>,r<sub>1</sub>)↦1, (l<sub>3</sub>,r<sub>2</sub>)↦1
+}</div><p>本批同时删除订单 <span class="mono">l<sub>3</sub></span> 和标签 <span class="mono">r<sub>2</sub></span>：</p><div class="formula">ΔL = {l<sub>3</sub>↦−1}
+ΔR = {r<sub>2</sub>↦−1}</div><p>删除后只剩 <span class="mono">l<sub>1</sub></span>、<span class="mono">l<sub>2</sub></span> 与 <span class="mono">r<sub>1</sub></span> 的两个配对，因此应撤回以下四条旧结果：</p><div class="formula">ΔV = {
+  (l<sub>3</sub>,r<sub>1</sub>)↦−1,
+  (l<sub>3</sub>,r<sub>2</sub>)↦−1,
+  (l<sub>1</sub>,r<sub>2</sub>)↦−1,
+  (l<sub>2</sub>,r<sub>2</sub>)↦−1
+}</div><p>三项公式分别产生：</p><table><tr><th>项</th><th>产生的输出变化</th></tr><tr><td class="mono">ΔL ⋈ R<sub>old</sub></td><td class="mono">{(l<sub>3</sub>,r<sub>1</sub>)↦−1, (l<sub>3</sub>,r<sub>2</sub>)↦−1}</td></tr><tr><td class="mono">L<sub>old</sub> ⋈ ΔR</td><td class="mono">{(l<sub>1</sub>,r<sub>2</sub>)↦−1, (l<sub>2</sub>,r<sub>2</sub>)↦−1, (l<sub>3</sub>,r<sub>2</sub>)↦−1}</td></tr><tr><td class="mono">ΔL ⋈ ΔR</td><td class="mono">{(l<sub>3</sub>,r<sub>2</sub>)↦+1}</td></tr></table><p>配对记录 <span class="mono">(l<sub>3</sub>,r<sub>2</sub>)</span> 在前两项中各被撤回一次，合计权重为 −2；第三项加回 +1，使它最终只撤回一次。其他三条配对记录各保持 −1。</p><div class="callout purple">这里没有把“连接键相同的行”合并计数。三项公式始终在完整输出记录上累加权重；只有同一个完整配对 <span class="mono">(l<sub>3</sub>,r<sub>2</sub>)</span> 在多项中重复出现时，它的权重才会相加。</div></section>
+<section><h2>5. 拓展：LEFT JOIN 为什么不能直接使用三项公式？</h2><div class="callout warn"><strong>LEFT JOIN 不具有 inner join 的双线性性质。</strong>固定右输入时仍可对左保持加法；反之通常不行——“右侧是否存在匹配”依赖右侧合并后的整体状态，不能分别计算再相加。</div><p>例如左侧只有记录 <span class="mono">l</span>，右侧输入 <span class="mono">R<sub>1</sub></span> 为空，<span class="mono">R<sub>2</sub></span> 中有一条与 <span class="mono">l</span> 匹配的记录 <span class="mono">r</span>：</p><div class="formula">L LEFT JOIN (R<sub>1</sub> + R<sub>2</sub>)
+= {(l,r) ↦ 1}
+
+(L LEFT JOIN R<sub>1</sub>) + (L LEFT JOIN R<sub>2</sub>)
+= {(l,NULL) ↦ 1} + {(l,r) ↦ 1}</div><p>左右结果不同，所以不能把 inner join 的三项双线性增量公式直接用于整个 LEFT JOIN。LEFT JOIN 通常需要拆成 inner join 与“未匹配左记录补 NULL”的部分；后者需要维护匹配是否存在的状态。</p></section>
+<section><h2>6. 小结</h2><ol><li>join 对左右输入分别线性，所以是双线性算子。</li><li>从新结果减旧结果完整展开后，旧×旧抵消，剩下三项。</li><li>第三项负责同批变化之间的匹配，也负责双边删除时的容斥修正。</li><li>实现需要保留事务开始前的 <span class="mono">L<sub>old</sub>/R<sub>old</sub></span> 状态；计算完 delta 后再更新状态。</li></ol><div class="formula">必须能脱稿写出：
+Δ(L ⋈ R)
+= ΔL ⋈ R<sub>old</sub>
++ L<sub>old</sub> ⋈ ΔR
++ ΔL ⋈ ΔR</div></section>
+<section><h2>7. 理解检查</h2><div class="quiz" data-answer="1" data-explain="join 的变化来自新×旧、旧×新和新×新三类匹配。"><div class="q">为什么 join 不能像 filter 一样只计算 ΔL ⋈ ΔR？</div><div class="options"><button class="opt">因为 join 不支持删除</button><button class="opt">因为新左记录还可能匹配旧右状态，新右记录也可能匹配旧左状态</button><button class="opt">因为 SQL join 总是全表扫描</button></div><div class="feedback"></div></div><div class="quiz" data-answer="2" data-explain="ΔV 定义为 新结果减旧结果，旧×旧正好抵消。"><div class="q">推导中 L<sub>old</sub>⋈R<sub>old</sub> 为什么消失？</div><div class="options"><button class="opt">被优化器忽略</button><button class="opt">join 结果不能为空</button><button class="opt">它在展开式中为正，同时作为 V<sub>old</sub> 被减去，二者抵消</button></div><div class="feedback"></div></div><div class="quiz" data-answer="0" data-explain="双方都是本批变化，只能由第三项匹配。"><div class="q">同一批中，左表与右表各新增一行且二者相互匹配，输出由哪一项产生？</div><div class="options"><button class="opt">ΔL⋈ΔR</button><button class="opt">ΔL⋈R<sub>old</sub></button><button class="opt">L<sub>old</sub>⋈ΔR</button></div><div class="feedback"></div></div><div class="quiz" data-answer="2" data-explain="负权重相乘得到正权重，使总权重成为正确的 −1。"><div class="q">两边同时删除一对旧匹配时，第三项的作用是什么？</div><div class="options"><button class="opt">再删除一次</button><button class="opt">不产生任何权重</button><button class="opt">产生 +1，修正前两项合计 −2 的重复删除</button></div><div class="feedback"></div></div></section>
+<nav>
+<a href="0005-linear-operators.html">← 上一课</a>
+<a href="index.html">课程目录</a>
+<a href="0007-distinct-delta-state.html">下一课 →</a>
+</nav>
+<footer>DBSP IVM 交互教学文档 · 严格记号中，增量算子作用于变化流；不会把快照与变化混写。 · <a href="index.html">课程目录</a></footer></div><script>
+document.querySelectorAll('.quiz').forEach(q=>{q.querySelectorAll('.opt').forEach((b,i)=>b.addEventListener('click',()=>{if(q.dataset.done)return;q.dataset.done='1';const ok=i===Number(q.dataset.answer);b.classList.add(ok?'correct':'wrong');q.querySelectorAll('.opt').forEach((x,j)=>{x.disabled=true;if(j===Number(q.dataset.answer))x.classList.add('correct')});const f=q.querySelector('.feedback');f.textContent=(ok?'✓ ':'✗ ')+q.dataset.explain;f.classList.add('show')}))});
+</script></body></html>

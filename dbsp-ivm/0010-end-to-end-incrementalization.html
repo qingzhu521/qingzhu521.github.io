@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width,initial-scale=1" name="viewport"/>
+<title>第 10 课 · 快照电路的机械增量化</title>
+<style>
+:root{--bg:#f4f1eb;--paper:#fffdf8;--ink:#1c1917;--muted:#57534e;--line:#e8e0d4;--accent:#9a3412;--accent-soft:#ffedd5;--teal:#0f766e;--teal-soft:#ccfbf1;--good:#166534;--good-soft:#dcfce7;--bad:#991b1b;--bad-soft:#fee2e2;--purple:#6d28d9;--purple-soft:#ede9fe;--code:#1c1917;--shadow:0 10px 28px rgba(28,25,23,.06)}
+*{box-sizing:border-box}
+body{margin:0;color:var(--ink);font-family:"Iowan Old Style","Palatino Linotype",Palatino,"Songti SC","Noto Serif SC",serif;line-height:1.68;background:radial-gradient(900px 480px at 0 0,#ffedd5 0,transparent 55%),radial-gradient(800px 420px at 100% 10%,#ccfbf155 0,transparent 50%),var(--bg)}
+.wrap{max-width:920px;margin:0 auto;padding:36px 18px 72px}
+.eyebrow,.cite,nav,footer{margin-top:28px;color:var(--muted);font-size:.88rem;font-family:ui-sans-serif,system-ui,sans-serif}
+.eyebrow{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);font-weight:800;font-family:ui-sans-serif,system-ui,sans-serif}
+h1{font-size:clamp(1.75rem,3vw,2.35rem);line-height:1.2;margin:10px 0 12px}
+h2{margin:0 0 11px;font-size:1.25rem}
+h3{margin:20px 0 8px;font-size:1.06rem}
+p{margin:0 0 12px}
+ul,ol{margin:0 0 12px;padding-left:1.3em}
+li{margin:.3em 0}
+a{color:var(--teal)}
+.lead{color:var(--muted);font-size:1.07rem}
+.cite{font-size:.88rem;color:var(--muted)}
+section{background:var(--paper);border:1px solid var(--line);border-radius:18px;padding:22px;margin:18px 0;box-shadow:var(--shadow)}
+.callout{border-left:4px solid var(--teal);padding:12px 14px;border-radius:0 12px 12px 0;margin:14px 0;font-family:ui-sans-serif,system-ui,sans-serif;font-size:.95rem;background:var(--teal-soft)}
+.callout.warn{border-left-color:var(--accent);background:var(--accent-soft)}
+.callout.good{border-left-color:var(--good);background:var(--good-soft)}
+.callout.bad{border-left-color:var(--bad);background:var(--bad-soft)}
+.callout.purple{border-left-color:var(--purple);background:var(--purple-soft)}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.91rem}
+.formula{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--code);color:#fafaf9;padding:15px 17px;border-radius:12px;overflow:auto;margin:12px 0;line-height:1.6;white-space:pre-wrap}
+table{width:100%;margin:10px 0 14px;font-size:.9rem;font-family:ui-sans-serif,system-ui,sans-serif;border-collapse:collapse}
+th,td{border:1px solid var(--line);padding:8px 10px;vertical-align:top}
+th{background:#faf6f0;padding:8px 10px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.card{border:1px solid var(--line);border-radius:12px;padding:13px;background:#fffcf7}
+.card h3{margin:0 0 8px;font:800 .82rem ui-sans-serif,system-ui;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.quiz{border:1px solid var(--line);border-radius:14px;padding:14px;margin:12px 0;background:#fff}
+.q{font:700 .96rem ui-sans-serif,system-ui;margin-bottom:9px}
+.options{display:grid;gap:8px}
+.opt{font:.92rem ui-sans-serif,system-ui;text-align:left;border:1px solid var(--line);background:#fff;border-radius:10px;padding:10px 12px;cursor:pointer}
+.opt:hover{border-color:var(--accent)}
+.opt.correct{background:var(--good-soft);border-color:var(--good)}
+.opt.wrong{background:var(--bad-soft);border-color:var(--bad)}
+.feedback{display:none;margin-top:9px;font:.91rem ui-sans-serif,system-ui}
+.feedback.show{display:block}
+nav{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;margin:24px 0;font-family:ui-sans-serif,system-ui,sans-serif}
+nav a{border:1px solid var(--line);border-radius:12px;background:#fff;padding:10px 14px;text-decoration:none;font-weight:700;color:var(--teal)}
+footer{margin-top:28px;color:var(--muted);font-size:.88rem;font-family:ui-sans-serif,system-ui,sans-serif}
+@media(max-width:740px){.grid{grid-template-columns:1fr}.wrap{padding:28px 14px 56px}section{padding:18px}table{font-size:.84rem}th,td{padding:8px;border:1px solid var(--line)}nav{flex-direction:column}}}
+.diagram{margin:14px 0 8px;padding:14px 12px 10px;border:1px solid var(--line);border-radius:14px;background:linear-gradient(180deg,#fffefb 0%,#faf6f0 100%);overflow-x:auto}
+.diagram svg{display:block;width:100%;height:auto;max-width:100%;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.diagram-cap{margin:0 0 4px;font:.86rem ui-sans-serif,system-ui,sans-serif;color:var(--muted);line-height:1.45}
+details.ascii-ref{margin:10px 0 12px;border:1px dashed var(--line);border-radius:12px;padding:8px 12px;background:#fffcf7;font-family:ui-sans-serif,system-ui,sans-serif;font-size:.9rem}
+details.ascii-ref summary{cursor:pointer;color:var(--muted);font-family:ui-sans-serif,system-ui,sans-serif;font-weight:700}
+details.ascii-ref .formula{margin-top:10px}
+.formula sub,.formula sup,.mono sub,.mono sup{font-size:.74em;line-height:0;position:relative;vertical-align:baseline}
+.formula sup,.mono sup{top:-.52em}
+.formula sub,.mono sub{bottom:-.20em}
+header{margin-bottom:28px}
+details{border:1px solid var(--line);border-radius:12px;background:#fff;padding:11px 13px;margin:10px 0}
+
+.course-byline { margin: 0 0 12px; color: var(--accent); font: 1rem/1.6 ui-sans-serif, system-ui, sans-serif; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+<div class="eyebrow">DBSP 教学 · Lesson 0010 · 约 35 分钟</div>
+<h1>快照电路的机械增量化</h1>
+<p class="course-byline">教程制作 · <strong>李金懋</strong>（OceanBase）</p>
+
+<p class="lead">本课严格沿 Algorithm 4.8，把一条有类型的 SQL 快照电路转换成处理变化流的电路，并用一个事务验证局部高效实现与全量重算产生相同结果。</p>
+<p class="cite">依据：DBSP 论文 §4.3 Algorithm 4.8，以及 §7.2–§7.4 对聚合、分组与分组聚合增量性的说明。</p>
+</header>
+
+<section>
+<h2>1. 问题：运行时收到变化，Q 却读取完整快照</h2>
+<p>快照查询仍是：</p>
+<div class="formula">SELECT region, SUM(amount) AS total
+FROM orders
+WHERE amount &gt;= 20
+GROUP BY region;</div>
+<p>它已翻译成类型为 <span class="mono">Q : ℤ[Order] → ℤ[Result]</span> 的快照电路：</p>
+<div class="formula">Q = Agg<sub>a</sub> ∘ G<sub>p</sub> ∘ P ∘ F
+
+F : ℤ[Order] → ℤ[Order]
+P : ℤ[Order] → ℤ[Pair]
+G<sub>p</sub> : ℤ[Pair] → ℤ[Pair][Region]
+Agg<sub>a</sub> : ℤ[Pair][Region] → ℤ[Result]
+
+a(k,s) = ∅                                 若 a<sub>COUNT</sub>(s)=0
+         makeset((k,a<sub>SUM</sub>(s)))   若 a<sub>COUNT</sub>(s)&gt;0</div>
+<p>运行时输入不是每批复制一遍完整 <span class="mono">orders</span>，而是一条变化流 <span class="mono">d</span>。若每批先恢复完整表，再对所有订单运行 <span class="mono">F</span>、<span class="mono">P</span>、<span class="mono">G<sub>p</sub></span> 和所有分组聚合，计算量取决于完整数据库及全部分组，而不只取决于本批变化。</p>
+</section>
+
+<section>
+<h2>2. Algorithm 4.8 的五个机械步骤</h2>
+<p>论文给出的增量视图维护算法按以下顺序处理查询：</p>
+<ol>
+<li><strong>翻译查询。</strong>把关系查询 <span class="mono">Q</span> 翻译成 Z-set 快照电路。本例就是上一节列出的 <span class="mono">F → P → G<sub>p</sub> → 每组 a<sub>SUM</sub> → makeset/Agg<sub>a</sub></span>。</li>
+<li><strong>合并 distinct（distinct consolidation）。</strong>
+定义：在 Z-set 电路上反复重写，合并相邻的 <span class="mono">distinct</span>，或把可被算子吸收／推迟的 <span class="mono">distinct</span> 删掉或后移，直到不能再应用为止（论文 Algorithm 4.8 第 2 步：until convergence）。
+动机：上一课 §4 已说明，论文 Table 1 在投影、并、差等集合语义算子末尾挂 <span class="mono">distinct</span>，以把多重集压回集合；直接翻译会在电路中留下一串冗余 <span class="mono">distinct</span>。每个 <span class="mono">distinct</span> 在增量电路里都要对照旧权重（第 7 课的 <span class="mono">H</span>）并占用状态，因此编译器必须合并。
+合法性依据（论文 §4.2）：
+<ul style="margin:8px 0 0;padding-left:1.2em">
+<li><strong>Proposition 4.5：</strong>若 <span class="mono">Q</span> 是 filter <span class="mono">σ</span>、join <span class="mono">⋈</span> 或笛卡尔积 <span class="mono">×</span>，且输入 <span class="mono">i</span> 满足 <span class="mono">ispositive(i)</span>，则 <span class="mono">Q(distinct(i)) = distinct(Q(i))</span>。该式允许把 <span class="mono">distinct</span> 推迟到 <span class="mono">Q</span> 之后（delay the application of distinct）。</li>
+<li><strong>Proposition 4.6：</strong>若 <span class="mono">Q</span> 是 filter <span class="mono">σ</span>、投影 <span class="mono">π</span>、selection（map）、加法 <span class="mono">+</span>、join 或 <span class="mono">×</span>，且 <span class="mono">ispositive(i)</span>，则 <span class="mono">distinct(Q(distinct(i))) = distinct(Q(i))</span>。由此可在一串计算末尾只保留一个 <span class="mono">distinct</span>（consolidate … by performing one distinct at the end of a chain）。</li>
+</ul>
+本课固定 SQL 没有显式 <span class="mono">DISTINCT</span>，且按 bag 语义也不在 project 后去重，因此本例没有 distinct 节点需要合并；带集合语义的端到端 consolidation 见下一节论文 §4.4 例子。</li>
+<li><strong>Lift 整条电路。</strong>由快照算子 <span class="mono">Q</span> 定义流算子 <span class="mono">↑Q</span>。</li>
+<li><strong>构造朴素增量。</strong>用 <span class="mono">ℐ</span> 与 <span class="mono">𝒟</span> 包围 <span class="mono">↑Q</span>，得到 <span class="mono">(↑Q)<sup>Δ</sup></span>。</li>
+<li><strong>递归化简。</strong>应用增量算子的链式法则和各基础算子的性质，把整条朴素增量分解到局部，再替换为高效局部实现。</li>
+</ol>
+<p>前四步定义输出必须是什么；第五步才改写内部计算，使它尽可能直接处理变化。</p>
+</section>
+
+<section>
+<h2>3. 从 Q 到 ↑Q，再到朴素增量</h2>
+<h3>3.1 Lift 后的快照流电路</h3>
+<p><span class="mono">↑Q</span> 的类型是从订单快照流到结果快照流。对任意逻辑时刻 <span class="mono">t</span>：</p>
+<div class="formula">(↑Q)(s)[t] = Q(s[t])
+  // 依据：Lift 的定义</div>
+<p>左侧在时刻 <span class="mono">t</span> 只读取输入快照流的当前项 <span class="mono">s[t]</span>；不会读取其他时刻。</p>
+
+<h3>3.2 用 ℐ 与 𝒟 构造朴素增量</h3>
+<div class="formula">(↑Q)<sup>Δ</sup> = 𝒟 ∘ ↑Q ∘ ℐ
+  // 依据：流算子的朴素增量定义</div>
+<p>给定订单变化流 <span class="mono">d</span>，先命名两条中间流：</p>
+<div class="formula">s = ℐ(d)      // s 是完整订单快照流
+y = ↑Q(s)     // y 是完整查询结果快照流</div>
+<p>对任意逻辑时刻 <span class="mono">t</span>，<span class="mono">s[t]</span> 读取并累加 <span class="mono">d[0]</span> 到 <span class="mono">d[t]</span>；<span class="mono">y[t]</span> 只读取同一时刻的 <span class="mono">s[t]</span>；<span class="mono">𝒟(y)[t]</span> 读取 <span class="mono">y[t]</span> 与前一项 <span class="mono">y[t−1]</span>（初始时刻以前取零元）。于是：</p>
+<div class="formula">(↑Q)<sup>Δ</sup>(d)[t]
+= 𝒟(y)[t]
+  // 依据：(↑Q)<sup>Δ</sup> 的定义以及 s、y 的命名
+
+= y[t] − y[t−1]
+  // 依据：𝒟 的定义
+
+= Q(s[t]) − Q(s[t−1])
+  // 依据：y = ↑Q(s) 与 Lift 的定义</div>
+<p>这条等式定义高效实现必须产生的结果：新完整查询结果减去旧完整查询结果。但按这个形式直接执行，仍会在两张完整快照上运行 <span class="mono">Q</span>。</p>
+</section>
+
+<section>
+<h2>4. 链式法则建立局部边界，局部规则带来效率</h2>
+<p>对普通可复合快照算子，链式法则把整体朴素增量分解为各段朴素增量。例如电路前半段满足：</p>
+<div class="formula">(↑(G<sub>p</sub> ∘ P ∘ F))<sup>Δ</sup>
+= (↑G<sub>p</sub>)<sup>Δ</sup> ∘ (↑P)<sup>Δ</sup> ∘ (↑F)<sup>Δ</sup>
+  // 依据：增量算子的链式法则，递归应用于复合结构</div>
+<p>链式法则保证各局部增量实现连接后仍满足整条 <span class="mono">(↑Q)<sup>Δ</sup></span> 的输出定义；它本身没有消除局部定义里的积分、完整快照执行与差分。效率来自继续应用以下局部规则：</p>
+<table>
+<thead><tr><th>层</th><th>局部结论</th><th>实际效果</th></tr></thead>
+<tbody>
+<tr><td>filter <span class="mono">F</span></td><td class="mono">(↑F)<sup>Δ</sup> = ↑F</td><td>F 线性，直接过滤本批带权重记录</td></tr>
+<tr><td>project <span class="mono">P</span></td><td class="mono">(↑P)<sup>Δ</sup> = ↑P</td><td>P 线性，直接映射本批记录并保留权重</td></tr>
+<tr><td>grouping <span class="mono">G<sub>p</sub></span></td><td class="mono">(↑G<sub>p</sub>)<sup>Δ</sup> = ↑G<sub>p</sub></td><td><span class="mono">G<sub>p</sub></span> 线性，只把本批变化送入对应键的 grouping</td></tr>
+<tr><td>每组 <span class="mono">a<sub>SUM</sub></span></td><td class="mono">(↑a<sub>SUM</sub>)<sup>Δ</sup> = ↑a<sub>SUM</sub></td><td><span class="mono">a<sub>SUM</sub></span> 线性，用本批加权金额更新组内标量</td></tr>
+<tr><td><span class="mono">makeset</span></td><td class="mono">(↑makeset)<sup>Δ</sup> = 𝒟 ∘ ↑makeset ∘ ℐ</td><td>不线性；读取该组新旧标量，撤回旧结果行并插入新结果行</td></tr>
+</tbody>
+</table>
+<div class="callout warn"><strong>论文边界：</strong><span class="mono">G<sub>p</sub></span> 与 <span class="mono">a<sub>SUM</sub></span> 线性，<span class="mono">makeset</span> 不线性。论文 §7.4 对分组聚合给出的效率结论是：输入 grouping 发生变化时，只需重新计算发生变化的 grouping。这里不把整个 GROUP BY 聚合虚构成一个全局线性算子。</div>
+</section>
+
+<section>
+<h2>5. 论文 §4.4 的完整例子：电路如何一步步变成增量版</h2>
+<p>本课主线 SQL 是 bag 语义的分组聚合，电路里没有 <span class="mono">distinct</span>。论文 §4.4 另给了一条带 <span class="mono">DISTINCT</span> 与 join 的集合查询，正好把 Algorithm 4.8 五步连同 Figure 1 的电路演化走完一遍。查询为：</p>
+<div class="formula">CREATE VIEW v AS
+SELECT DISTINCT t1.x, t2.y FROM (
+  SELECT t1.x, t1.id FROM t WHERE t.a &gt; 2
+) t1
+JOIN (
+  SELECT t2.id, t2.y FROM r WHERE r.s &gt; 5
+) t2 ON t1.id = t2.id</div>
+
+<figure class="diagram">
+<svg viewBox="0 0 920 168" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="evo-title evo-desc">
+  <title id="evo-title">Algorithm 4.8 六阶段电路演化</title>
+  <desc id="evo-desc">从原查询电路经 distinct consolidation、Lift、朴素增量、链式展开到最终增量电路</desc>
+
+  <defs>
+    <marker id="evo-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M2 1.5 L9 5 L2 8.5 Z" fill="#57534e"/>
+    </marker>
+    <marker id="evo-arrA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M2 1.5 L9 5 L2 8.5 Z" fill="#9a3412"/>
+    </marker>
+    <marker id="evo-arrT" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M2 1.5 L9 5 L2 8.5 Z" fill="#0f766e"/>
+    </marker>
+  </defs>
+  <!-- stage cards -->
+  <!-- 1 -->
+  <g transform="translate(8,18)">
+    <rect width="130" height="112" rx="12" fill="#fffdf8" stroke="#e8e0d4"/>
+    <text x="65" y="18" text-anchor="middle" font-size="11" font-weight="700" fill="#9a3412" font-family="ui-sans-serif,system-ui,sans-serif">5.1 原查询</text>
+    <text x="65" y="34" text-anchor="middle" font-size="10" fill="#57534e" font-family="ui-sans-serif,system-ui,sans-serif">Table 1 翻译</text>
+    <!-- mini Y -->
+    <circle cx="28" cy="52" r="5" fill="#fff" stroke="#57534e"/><text x="28" y="55" text-anchor="middle" font-size="9" fill="#1c1917">t</text>
+    <circle cx="28" cy="88" r="5" fill="#fff" stroke="#57534e"/><text x="28" y="91" text-anchor="middle" font-size="9" fill="#1c1917">r</text>
+    <rect x="42" y="44" width="28" height="14" rx="8" fill="#ffedd5" stroke="#9a3412"/><text x="56" y="54" text-anchor="middle" font-size="9" fill="#9a3412">σπd…</text>
+    <rect x="42" y="80" width="28" height="14" rx="8" fill="#ffedd5" stroke="#9a3412"/><text x="56" y="90" text-anchor="middle" font-size="9" fill="#9a3412">σπd…</text>
+    <path d="M70 51 H82 V70 H90" fill="none" stroke="#57534e" stroke-width="1.25" marker-end="url(#evo-arr)"/>
+    <path d="M70 87 H82 V70" fill="none" stroke="#57534e" stroke-width="1.25"/>
+    <rect x="92" y="62" width="26" height="16" rx="8" fill="#fff" stroke="#0f766e"/><text x="105" y="73" text-anchor="middle" font-size="9" fill="#0f766e">⋈</text>
+    <text x="65" y="108" text-anchor="middle" font-size="9" fill="#57534e" font-family="ui-sans-serif,system-ui,sans-serif">多 distinct</text>
+  </g>
+  <path d="M142 74 H156" stroke="#9a3412" stroke-width="1.6" marker-end="url(#evo-arrA)"/>
+  <!-- 2 -->
+  <g transform="translate(160,18)">
+    <rect width="130" height="112" rx="12" fill="#fffdf8" stroke="#e8e0d4"/>
+    <text x="65" y="18" text-anchor="middle" font-size="11" font-weight="700" fill="#9a3412" font-family="ui-sans-serif,system-ui,sans-serif">5.2 合并 distinct</text>
+    <text x="65" y="34" text-anchor="middle" font-size="10" fill="#57534e" font-family="ui-sans-serif,system-ui,sans-serif">Prop. 4.5 / 4.6</text>
+    <circle cx="28" cy="52" r="5" fill="#fff" stroke="#57534e"/><text x="28" y="55" text-anchor="middle" font-size="9">t</text>
+    <circle cx="28" cy="88" r="5" fill="#fff" stroke="#57534e"/><text x="28" y="91" text-anchor="middle" font-size="9">r</text>
+    <rect x="42" y="44" width="26" height="14" rx="8" fill="#fff" stroke="#57534e"/><text x="55" y="54" text-anchor="middle" font-size="9">σπ</text>
+    <rect x="42" y="80" width="26" height="14" rx="8" fill="#fff" stroke="#57534e"/><text x="55" y="90" text-anchor="middle" font-size="9">σπ</text>
+    <path d="M68 51 H80 V70 H88" fill="none" stroke="#57534e" stroke-width="1.25" marker-end="url(#evo-arr)"/>
+    <path d="M68 87 H80 V70" fill="none" stroke="#57534e" stroke-width="1.25"/>
+    <rect x="90" y="62" width="22" height="16" rx="8" fill="#fff" stroke="#0f766e"/><text x="101" y="73" text-anchor="middle" font-size="9" fill="#0f766e">⋈</text>
+    <rect x="96" y="88" width="22" height="12" rx="8" fill="#dcfce7" stroke="#166534"/><text x="107" y="97" text-anchor="middle" font-size="9" fill="#166534">d</text>
+    <text x="65" y="108" text-anchor="middle" font-size="9" fill="#57534e" font-family="ui-sans-serif,system-ui,sans-serif">末尾 1 个 distinct</text>
+  </g>
+  <path d="M294 74 H308" stroke="#9a3412" stroke-width="1.6" marker-end="url(#evo-arrA)"/>
+  <!-- 3 -->
+  <g transform="translate(312,18)">
+    <rect width="130" height="112" rx="12" fill="#fffdf8" stroke="#e8e0d4"/>
+    <text x="65" y="18" text-anchor="middle" font-size="11" font-weight="700" fill="#9a3412" font-family="ui-sans-serif,system-ui,sans-serif">5.3 Lift</text>
+    <text x="65" y="34" text-anchor="middle" font-size="10" fill="#57534e" font-family="ui-sans-serif,system-ui,sans-serif">快照流电路</text>
+    <circle cx="26" cy="60" r="5" fill="#fff" stroke="#57534e"/><text x="26" y="63" text-anchor="middle" font-size="9">t</text>
+    <circle cx="26" cy="88" r="5" fill="#fff" stroke="#57534e"/><text x="26" y="91" text-anchor="middle" font-size="9">r</text>
+    <rect x="40" y="50" width="34" height="16" rx="8" fill="#ccfbf1" stroke="#0f766e"/><text x="57" y="61" text-anchor="middle" font-size="9" fill="#0f766e">↑σπ</text>
+    <rect x="40" y="80" width="34" height="16" rx="8" fill="#ccfbf1" stroke="#0f766e"/><text x="57" y="91" text-anchor="middle" font-size="9" fill="#0f766e">↑σπ</text>
+    <path d="M74 58 H84 V74 H92" fill="none" stroke="#57534e" stroke-width="1.25" marker-end="url(#evo-arr)"/>
+    <path d="M74 88 H84 V74" fill="none" stroke="#57534e" stroke-width="1.25"/>
+    <rect x="94" y="66" width="24" height="16" rx="8" fill="#ccfbf1" stroke="#0f766e"/><text x="106" y="77" text-anchor="middle" font-size="9" fill="#0f766e">↑⋈</text>
+    <text x="65" y="108" text-anchor="middle" font-size="9" fill="#57534e" font-family="ui-sans-serif,system-ui,sans-serif">每个算子加 ↑</text>
+  </g>
+  <path d="M446 74 H460" stroke="#9a3412" stroke-width="1.6" marker-end="url(#evo-arrA)"/>
+  <!-- 4 -->
+  <g transform="translate(464,18)">
+    <rect width="130" height="112" rx="12" fill="#fffdf8" stroke="#e8e0d4"/>
+    <text x="65" y="18" text-anchor="middle" font-size="11" font-weight="700" fill="#9a3412" font-family="ui-sans-serif,system-ui,sans-serif">5.4 朴素增量</text>
+    <text x="65" y="34" text-anchor="middle" font-size="10" fill="#57534e" font-family="ui-sans-serif,system-ui,sans-serif">𝒟 ∘ ↑Q ∘ ℐ</text>
+    <rect x="10" y="50" width="18" height="16" rx="8" fill="#ffedd5" stroke="#9a3412"/><text x="19" y="61" text-anchor="middle" font-size="9" fill="#9a3412">ℐ</text>
+    <rect x="36" y="50" width="40" height="16" rx="8" fill="#ccfbf1" stroke="#0f766e"/><text x="56" y="61" text-anchor="middle" font-size="9" fill="#0f766e">↑Q</text>
+    <rect x="84" y="50" width="18" height="16" rx="8" fill="#ffedd5" stroke="#9a3412"/><text x="93" y="61" text-anchor="middle" font-size="9" fill="#9a3412">𝒟</text>
+    <path d="M28 58 H36" stroke="#57534e" stroke-width="1.25" marker-end="url(#evo-arr)"/>
+    <path d="M76 58 H84" stroke="#57534e" stroke-width="1.25" marker-end="url(#evo-arr)"/>
+    <text x="65" y="84" text-anchor="middle" font-size="10" fill="#1c1917">Δt,Δr → ΔV</text>
+    <text x="65" y="108" text-anchor="middle" font-size="9" fill="#57534e" font-family="ui-sans-serif,system-ui,sans-serif">语义对，仍全量</text>
+  </g>
+  <path d="M598 74 H612" stroke="#9a3412" stroke-width="1.6" marker-end="url(#evo-arrA)"/>
+  <!-- 5 -->
+  <g transform="translate(616,18)">
+    <rect width="130" height="112" rx="12" fill="#fffdf8" stroke="#e8e0d4"/>
+    <text x="65" y="18" text-anchor="middle" font-size="11" font-weight="700" fill="#9a3412" font-family="ui-sans-serif,system-ui,sans-serif">5.5 链式展开</text>
+    <text x="65" y="34" text-anchor="middle" font-size="10" fill="#57534e" font-family="ui-sans-serif,system-ui,sans-serif">局部 (↑·)ᵈ</text>
+    <rect x="14" y="52" width="30" height="14" rx="8" fill="#ede9fe" stroke="#6d28d9"/><text x="29" y="62" text-anchor="middle" font-size="9" fill="#6d28d9">(↑σ)ᵈ</text>
+    <rect x="50" y="52" width="30" height="14" rx="8" fill="#ede9fe" stroke="#6d28d9"/><text x="65" y="62" text-anchor="middle" font-size="9" fill="#6d28d9">(↑π)ᵈ</text>
+    <rect x="86" y="52" width="30" height="14" rx="8" fill="#ede9fe" stroke="#6d28d9"/><text x="101" y="62" text-anchor="middle" font-size="9" fill="#6d28d9">(↑⋈)ᵈ</text>
+    <path d="M44 59 H50" stroke="#57534e" stroke-width="1.25" marker-end="url(#evo-arr)"/>
+    <path d="M80 59 H86" stroke="#57534e" stroke-width="1.25" marker-end="url(#evo-arr)"/>
+    <text x="65" y="88" text-anchor="middle" font-size="10" fill="#1c1917">… (↑distinct)ᵈ</text>
+    <text x="65" y="108" text-anchor="middle" font-size="9" fill="#57534e" font-family="ui-sans-serif,system-ui,sans-serif">分解到基础算子</text>
+  </g>
+  <path d="M750 74 H764" stroke="#9a3412" stroke-width="1.6" marker-end="url(#evo-arrA)"/>
+  <!-- 6 -->
+  <g transform="translate(768,18)">
+    <rect width="140" height="112" rx="12" fill="#ffedd5" stroke="#9a3412" stroke-width="1.6"/>
+    <text x="70" y="18" text-anchor="middle" font-size="11" font-weight="700" fill="#9a3412" font-family="ui-sans-serif,system-ui,sans-serif">5.6 最终电路</text>
+    <text x="70" y="34" text-anchor="middle" font-size="10" fill="#57534e" font-family="ui-sans-serif,system-ui,sans-serif">论文 Figure 1</text>
+    <rect x="12" y="48" width="22" height="14" rx="8" fill="#fff" stroke="#0f766e"/><text x="23" y="58" text-anchor="middle" font-size="9" fill="#0f766e">↑σπ</text>
+    <rect x="40" y="48" width="16" height="14" rx="8" fill="#ffedd5" stroke="#9a3412"/><text x="48" y="58" text-anchor="middle" font-size="9" fill="#9a3412">ℐ</text>
+    <rect x="62" y="48" width="22" height="14" rx="8" fill="#ffedd5" stroke="#9a3412"/><text x="73" y="58" text-anchor="middle" font-size="9" fill="#9a3412">z⁻¹</text>
+    <rect x="90" y="48" width="18" height="14" rx="8" fill="#fff" stroke="#0f766e"/><text x="99" y="58" text-anchor="middle" font-size="9" fill="#0f766e">⋈×3</text>
+    <rect x="114" y="48" width="16" height="14" rx="8" fill="#ffedd5" stroke="#9a3412"/><text x="122" y="58" text-anchor="middle" font-size="9" fill="#9a3412">H</text>
+    <text x="70" y="84" text-anchor="middle" font-size="10" fill="#1c1917">3×ℐ · 3×⋈ · H</text>
+    <text x="70" y="108" text-anchor="middle" font-size="9" fill="#57534e" font-family="ui-sans-serif,system-ui,sans-serif">线性 + 双线性 + H</text>
+  </g>
+</svg>
+<p class="diagram-cap">图：Algorithm 4.8 五步在 §4.4 例子上的电路演化（5.1→5.6）。高亮的第 6 格即论文 Figure 1，见下方完整图。</p>
+</figure>
+<details class="ascii-ref"><summary>六阶段 ASCII 电路对照（5.1–5.6）</summary>
+<div class="formula">5.1 原查询
+t ──→ σ<sub>a&gt;2</sub> ──→ distinct ──→ π<sub>x,id</sub> ──→ distinct ──┐
+                                                      ⋈<sub>id</sub> ──→ π<sub>x,y</sub> ──→ distinct ──→ V
+r ──→ σ<sub>s&gt;5</sub> ──→ distinct ──→ π<sub>y,id</sub> ──→ distinct ──┘
+
+5.2 consolidation（Prop. 4.6 → 4.5 → 4.6）
+t ──→ σ<sub>a&gt;2</sub> ──→ π<sub>x,id</sub> ──┐
+                        ⋈<sub>id</sub> ──→ π<sub>x,y</sub> ──→ distinct ──→ V
+r ──→ σ<sub>s&gt;5</sub> ──→ π<sub>y,id</sub> ──┘
+
+5.3 Lift
+t ──→ ↑σ<sub>a&gt;2</sub> ──→ ↑π<sub>x,id</sub> ──┐
+                           ↑⋈<sub>id</sub> ──→ ↑π<sub>x,y</sub> ──→ ↑distinct ──→ V
+r ──→ ↑σ<sub>s&gt;5</sub> ──→ ↑π<sub>y,id</sub> ──┘
+
+5.4 朴素增量
+Δt ──→ ℐ ──→ ↑σ<sub>a&gt;2</sub> ──→ ↑π<sub>x,id</sub> ──┐
+                                   ↑⋈<sub>id</sub> ──→ ↑π<sub>x,y</sub> ──→ ↑distinct ──→ 𝒟 ──→ ΔV
+Δr ──→ ℐ ──→ ↑σ<sub>s&gt;5</sub> ──→ ↑π<sub>y,id</sub> ──┘
+
+5.5 链式展开
+Δt ──→ (↑σ<sub>a&gt;2</sub>)<sup>Δ</sup> ──→ (↑π<sub>x,id</sub>)<sup>Δ</sup> ──┐
+                                      (↑⋈<sub>id</sub>)<sup>Δ</sup> ──→ (↑π<sub>x,y</sub>)<sup>Δ</sup> ──→ (↑distinct)<sup>Δ</sup> ──→ ΔV
+Δr ──→ (↑σ<sub>s&gt;5</sub>)<sup>Δ</sup> ──→ (↑π<sub>y,id</sub>)<sup>Δ</sup> ──┘
+
+5.6 最终（见上图 / Figure 1）</div>
+</details>
+
+<h3>5.1 原查询电路（Algorithm 4.8 第 1 步：Table 1 翻译）</h3>
+<p>集合语义下，filter／project 末尾各挂 <span class="mono">distinct</span>，join 后再 project，输出再 <span class="mono">distinct</span>：</p>
+<div class="formula">t ──→ σ<sub>a&gt;2</sub> ──→ distinct ──→ π<sub>x,id</sub> ──→ distinct ──┐
+                                                      ⋈<sub>id</sub> ──→ π<sub>x,y</sub> ──→ distinct ──→ V
+r ──→ σ<sub>s&gt;5</sub> ──→ distinct ──→ π<sub>y,id</sub> ──→ distinct ──┘</div>
+<p class="cite">用了哪条规则：Algorithm 4.8 第 1 步 + 上一课 Table 1「集合语义算子末尾挂 distinct」。</p>
+
+<h3>5.2 distinct consolidation（Algorithm 4.8 第 2 步）</h3>
+<p>先用 <strong>Proposition 4.6</strong> 去掉各支路上「算子前后成对」的冗余 distinct，得到：</p>
+<div class="formula">t ──→ σ<sub>a&gt;2</sub> ──→ π<sub>x,id</sub> ──→ distinct ──┐
+                                      ⋈<sub>id</sub> ──→ π<sub>x,y</sub> ──→ distinct ──→ V
+r ──→ σ<sub>s&gt;5</sub> ──→ π<sub>y,id</sub> ──→ distinct ──┘</div>
+<p>再用 <strong>Proposition 4.5</strong> 把 join 两侧的 distinct 推迟到 join 之后：</p>
+<div class="formula">t ──→ σ<sub>a&gt;2</sub> ──→ π<sub>x,id</sub> ──┐
+                        ⋈<sub>id</sub> ──→ distinct ──→ π<sub>x,y</sub> ──→ distinct ──→ V
+r ──→ σ<sub>s&gt;5</sub> ──→ π<sub>y,id</sub> ──┘</div>
+<p>再应用一次 <strong>Proposition 4.6</strong>，把末尾链上的两个 distinct 合并为一个：</p>
+<div class="formula">t ──→ σ<sub>a&gt;2</sub> ──→ π<sub>x,id</sub> ──┐
+                        ⋈<sub>id</sub> ──→ π<sub>x,y</sub> ──→ distinct ──→ V
+r ──→ σ<sub>s&gt;5</sub> ──→ π<sub>y,id</sub> ──┘</div>
+<p class="cite">用了哪条规则：Algorithm 4.8 第 2 步；合法重写依据是 Prop. 4.5（推迟）与 Prop. 4.6（链末只留一个 distinct）。</p>
+
+<h3>5.3 Lift 整条电路（Algorithm 4.8 第 3 步）</h3>
+<div class="formula">t ──→ ↑σ<sub>a&gt;2</sub> ──→ ↑π<sub>x,id</sub> ──┐
+                           ↑⋈<sub>id</sub> ──→ ↑π<sub>x,y</sub> ──→ ↑distinct ──→ V
+r ──→ ↑σ<sub>s&gt;5</sub> ──→ ↑π<sub>y,id</sub> ──┘</div>
+<p class="cite">用了哪条规则：Algorithm 4.8 第 3 步（Lift；复合对 Lift 分配）。此时输入／输出已是完整快照流。</p>
+
+<h3>5.4 套朴素增量 ℐ / 𝒟（Algorithm 4.8 第 4 步）</h3>
+<div class="formula">Δt ──→ ℐ ──→ ↑σ<sub>a&gt;2</sub> ──→ ↑π<sub>x,id</sub> ──┐
+                                   ↑⋈<sub>id</sub> ──→ ↑π<sub>x,y</sub> ──→ ↑distinct ──→ 𝒟 ──→ ΔV
+Δr ──→ ℐ ──→ ↑σ<sub>s&gt;5</sub> ──→ ↑π<sub>y,id</sub> ──┘</div>
+<p class="cite">用了哪条规则：Algorithm 4.8 第 4 步，即 <span class="mono">(↑Q)<sup>Δ</sup> = 𝒟 ∘ ↑Q ∘ ℐ</span>。语义正确，但内部仍在完整快照上算。</p>
+
+<h3>5.5 链式法则展开（Algorithm 4.8 第 5 步 · 分解）</h3>
+<div class="formula">Δt ──→ (↑σ<sub>a&gt;2</sub>)<sup>Δ</sup> ──→ (↑π<sub>x,id</sub>)<sup>Δ</sup> ──┐
+                                      (↑⋈<sub>id</sub>)<sup>Δ</sup> ──→ (↑π<sub>x,y</sub>)<sup>Δ</sup> ──→ (↑distinct)<sup>Δ</sup> ──→ ΔV
+Δr ──→ (↑σ<sub>s&gt;5</sub>)<sup>Δ</sup> ──→ (↑π<sub>y,id</sub>)<sup>Δ</sup> ──┘</div>
+<p class="cite">用了哪条规则：Algorithm 4.8 第 5 步中的链式法则（本课第 4 节）。</p>
+
+<h3>5.6 局部规则替换 → 最终增量电路（Algorithm 4.8 第 5 步 · 化简）</h3>
+<p>先用线性：<span class="mono">(↑σ)<sup>Δ</sup> = ↑σ</span>、<span class="mono">(↑π)<sup>Δ</sup> = ↑π</span>：</p>
+<div class="formula">Δt ──→ ↑σ<sub>a&gt;2</sub> ──→ ↑π<sub>x,id</sub> ──┐
+                              (↑⋈<sub>id</sub>)<sup>Δ</sup> ──→ ↑π<sub>x,y</sub> ──→ (↑distinct)<sup>Δ</sup> ──→ ΔV
+Δr ──→ ↑σ<sub>s&gt;5</sub> ──→ ↑π<sub>y,id</sub> ──┘</div>
+<p>再把 <span class="mono">(↑⋈)<sup>Δ</sup></span> 换成双线性三项（两侧各带 <span class="mono">ℐ</span>／<span class="mono">z⁻¹</span> 读旧状态），把 <span class="mono">(↑distinct)<sup>Δ</sup></span> 换成带 <span class="mono">ℐ</span>／<span class="mono">z⁻¹</span> 与 <span class="mono">↑H</span> 的电路，即论文 Figure 1：</p>
+<figure class="diagram">
+<svg viewBox="0 0 980 430" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="fig1-title fig1-desc">
+  <title id="fig1-title">论文 Figure 1：§4.4 最终增量电路</title>
+  <desc id="fig1-desc">Δt 与 Δr 经线性 filter/project 后，双线性 join 三项（两侧 ℐ/z⁻¹ 与本批变化）求和，再经 project 与带 H 的 distinct 增量输出 ΔV</desc>
+
+  <defs>
+    <marker id="f1-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M2 1.5 L9 5 L2 8.5 Z" fill="#57534e"/>
+    </marker>
+    <marker id="f1-arrA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M2 1.5 L9 5 L2 8.5 Z" fill="#9a3412"/>
+    </marker>
+    <marker id="f1-arrT" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M2 1.5 L9 5 L2 8.5 Z" fill="#0f766e"/>
+    </marker>
+  </defs>
+
+  <!-- background regions -->
+  <rect x="8" y="8" width="268" height="414" rx="14" fill="#fffefb" stroke="#e8e0d4" stroke-dasharray="4 3" opacity="0.9"/>
+  <text x="142" y="28" text-anchor="middle" font-size="11" fill="#57534e" font-family="ui-sans-serif,system-ui,sans-serif" font-weight="700">线性前缀（σ / π）</text>
+
+  <rect x="286" y="8" width="318" height="414" rx="14" fill="#fff7ed" stroke="#fdba74" stroke-dasharray="4 3" opacity="0.55"/>
+  <text x="445" y="28" text-anchor="middle" font-size="11" fill="#9a3412" font-family="ui-sans-serif,system-ui,sans-serif" font-weight="700">双线性 join（Theorem 3.4）</text>
+
+  <rect x="614" y="8" width="358" height="414" rx="14" fill="#f0fdfa" stroke="#99f6e4" stroke-dasharray="4 3" opacity="0.7"/>
+  <text x="793" y="28" text-anchor="middle" font-size="11" fill="#0f766e" font-family="ui-sans-serif,system-ui,sans-serif" font-weight="700">project + distinctᵈ（Prop. 4.7 · H）</text>
+
+  <!-- ===== TOP INPUT PATH ===== -->
+  <!-- Δt -->
+  <rect x="24" y="70" width="44" height="28" rx="8" fill="#fff" stroke="#1c1917" stroke-width="1.6"/>
+  <text x="46" y="88" text-anchor="middle" font-size="13" font-weight="700" fill="#1c1917">Δt</text>
+
+  <!-- ↑σ a>2 -->
+  <rect x="90" y="68" width="72" height="32" rx="8" fill="#fff" stroke="#57534e" stroke-width="1.25"/>
+  <text x="126" y="88" text-anchor="middle" font-size="12" fill="#1c1917">↑σ<tspan font-size="9" dy="3">a&gt;2</tspan></text>
+
+  <!-- ↑π x,id -->
+  <rect x="184" y="68" width="72" height="32" rx="8" fill="#fff" stroke="#57534e" stroke-width="1.25"/>
+  <text x="220" y="88" text-anchor="middle" font-size="12" fill="#1c1917">↑π<tspan font-size="9" dy="3">x,id</tspan></text>
+
+  <!-- fork point left delta -->
+  <circle cx="270" cy="84" r="3.5" fill="#57534e"/>
+
+  <!-- left I -->
+  <rect x="300" y="54" width="36" height="28" rx="8" fill="#ffedd5" stroke="#9a3412" stroke-width="1.6"/>
+  <text x="318" y="72" text-anchor="middle" font-size="14" font-weight="700" fill="#9a3412">ℐ</text>
+
+  <!-- left z-1 -->
+  <rect x="354" y="54" width="44" height="28" rx="8" fill="#ffedd5" stroke="#9a3412" stroke-width="1.6"/>
+  <text x="376" y="72" text-anchor="middle" font-size="13" font-weight="700" fill="#9a3412">z⁻¹</text>
+
+  <!-- L_old label -->
+  <text x="376" y="48" text-anchor="middle" font-size="10" fill="#9a3412" font-family="ui-sans-serif,system-ui,sans-serif">L<tspan font-size="9" dy="3">old</tspan></text>
+
+  <!-- arrows top chain -->
+  <path d="M68 84 H90" stroke="#57534e" stroke-width="1.6" marker-end="url(#f1-arr)"/>
+  <path d="M162 84 H184" stroke="#57534e" stroke-width="1.6" marker-end="url(#f1-arr)"/>
+  <path d="M256 84 H266.5" stroke="#57534e" stroke-width="1.6"/>
+  <path d="M270 84 H300" stroke="#57534e" stroke-width="1.6" marker-end="url(#f1-arr)"/>
+  <path d="M336 68 H354" stroke="#9a3412" stroke-width="1.6" marker-end="url(#f1-arrA)"/>
+
+  <!-- ===== BOTTOM INPUT PATH ===== -->
+  <rect x="24" y="330" width="44" height="28" rx="8" fill="#fff" stroke="#1c1917" stroke-width="1.6"/>
+  <text x="46" y="348" text-anchor="middle" font-size="13" font-weight="700" fill="#1c1917">Δr</text>
+
+  <rect x="90" y="328" width="72" height="32" rx="8" fill="#fff" stroke="#57534e" stroke-width="1.25"/>
+  <text x="126" y="348" text-anchor="middle" font-size="12" fill="#1c1917">↑σ<tspan font-size="9" dy="3">s&gt;5</tspan></text>
+
+  <rect x="184" y="328" width="72" height="32" rx="8" fill="#fff" stroke="#57534e" stroke-width="1.25"/>
+  <text x="220" y="348" text-anchor="middle" font-size="12" fill="#1c1917">↑π<tspan font-size="9" dy="3">y,id</tspan></text>
+
+  <circle cx="270" cy="344" r="3.5" fill="#57534e"/>
+
+  <rect x="300" y="348" width="36" height="28" rx="8" fill="#ffedd5" stroke="#9a3412" stroke-width="1.6"/>
+  <text x="318" y="366" text-anchor="middle" font-size="14" font-weight="700" fill="#9a3412">ℐ</text>
+
+  <rect x="354" y="348" width="44" height="28" rx="8" fill="#ffedd5" stroke="#9a3412" stroke-width="1.6"/>
+  <text x="376" y="366" text-anchor="middle" font-size="13" font-weight="700" fill="#9a3412">z⁻¹</text>
+  <text x="376" y="392" text-anchor="middle" font-size="10" fill="#9a3412" font-family="ui-sans-serif,system-ui,sans-serif">R<tspan font-size="9" dy="3">old</tspan></text>
+
+  <path d="M68 344 H90" stroke="#57534e" stroke-width="1.6" marker-end="url(#f1-arr)"/>
+  <path d="M162 344 H184" stroke="#57534e" stroke-width="1.6" marker-end="url(#f1-arr)"/>
+  <path d="M256 344 H266.5" stroke="#57534e" stroke-width="1.6"/>
+  <path d="M270 344 H300" stroke="#57534e" stroke-width="1.6" marker-end="url(#f1-arr)"/>
+  <path d="M336 362 H354" stroke="#9a3412" stroke-width="1.6" marker-end="url(#f1-arrA)"/>
+
+  <!-- ===== THREE JOINS ===== -->
+  <!-- J1: L_old ⋈ ΔR -->
+  <rect x="460" y="100" width="88" height="36" rx="8" fill="#fff" stroke="#0f766e" stroke-width="1.6"/>
+  <text x="504" y="117" text-anchor="middle" font-size="12" fill="#0f766e" font-weight="700">↑⋈</text>
+  <text x="504" y="130" text-anchor="middle" font-size="9" fill="#57534e">L<tspan font-size="9" dy="3">old</tspan> ⋈ ΔR</text>
+
+  <!-- J2: ΔL ⋈ R_old -->
+  <rect x="460" y="168" width="88" height="36" rx="8" fill="#fff" stroke="#0f766e" stroke-width="1.6"/>
+  <text x="504" y="185" text-anchor="middle" font-size="12" fill="#0f766e" font-weight="700">↑⋈</text>
+  <text x="504" y="198" text-anchor="middle" font-size="9" fill="#57534e">ΔL ⋈ R<tspan font-size="9" dy="3">old</tspan></text>
+
+  <!-- J3: ΔL ⋈ ΔR -->
+  <rect x="460" y="236" width="88" height="36" rx="8" fill="#fff" stroke="#0f766e" stroke-width="1.6"/>
+  <text x="504" y="253" text-anchor="middle" font-size="12" fill="#0f766e" font-weight="700">↑⋈</text>
+  <text x="504" y="266" text-anchor="middle" font-size="9" fill="#57534e">ΔL ⋈ ΔR</text>
+
+  <!-- wires into joins -->
+  <!-- L_old from top z-1 to J1 -->
+  <path d="M398 68 H430 V118 H460" fill="none" stroke="#9a3412" stroke-width="1.25" marker-end="url(#f1-arrA)"/>
+  <!-- ΔR from bottom fork to J1 -->
+  <path d="M270 344 V300 H430 V128 H460" fill="none" stroke="#57534e" stroke-width="1.25" marker-end="url(#f1-arr)"/>
+  <!-- ΔL from top fork to J2 -->
+  <path d="M270 84 V186 H460" fill="none" stroke="#57534e" stroke-width="1.25" marker-end="url(#f1-arr)"/>
+  <!-- R_old from bottom z-1 to J2 -->
+  <path d="M398 362 H430 V186 H460" fill="none" stroke="#9a3412" stroke-width="1.25" marker-end="url(#f1-arrA)"/>
+  <!-- ΔL to J3 -->
+  <path d="M270 84 V220 H400 V254 H460" fill="none" stroke="#57534e" stroke-width="1.25" stroke-dasharray="3 2" marker-end="url(#f1-arr)"/>
+  <!-- ΔR to J3 -->
+  <path d="M270 344 V280 H400 V262 H460" fill="none" stroke="#57534e" stroke-width="1.25" stroke-dasharray="3 2" marker-end="url(#f1-arr)"/>
+
+  <!-- labels for delta forks -->
+  <text x="286" y="150" font-size="10" fill="#57534e" font-family="ui-sans-serif,system-ui,sans-serif">ΔL</text>
+  <text x="286" y="310" font-size="10" fill="#57534e" font-family="ui-sans-serif,system-ui,sans-serif">ΔR</text>
+
+  <!-- PLUS -->
+  <circle cx="590" cy="186" r="18" fill="#fff" stroke="#1c1917" stroke-width="1.6"/>
+  <text x="590" y="192" text-anchor="middle" font-size="18" font-weight="700" fill="#1c1917">+</text>
+
+  <path d="M548 118 H568 V176 H572" fill="none" stroke="#57534e" stroke-width="1.25" marker-end="url(#f1-arr)"/>
+  <path d="M548 186 H572" fill="none" stroke="#57534e" stroke-width="1.25" marker-end="url(#f1-arr)"/>
+  <path d="M548 254 H568 V196 H572" fill="none" stroke="#57534e" stroke-width="1.25" marker-end="url(#f1-arr)"/>
+
+  <!-- ↑π x,y -->
+  <rect x="628" y="170" width="72" height="32" rx="8" fill="#fff" stroke="#57534e" stroke-width="1.25"/>
+  <text x="664" y="190" text-anchor="middle" font-size="12" fill="#1c1917">↑π<tspan font-size="9" dy="3">x,y</tspan></text>
+  <path d="M608 186 H628" stroke="#57534e" stroke-width="1.6" marker-end="url(#f1-arr)"/>
+
+  <!-- fork after pi -->
+  <circle cx="716" cy="186" r="3.5" fill="#57534e"/>
+  <path d="M700 186 H712.5" stroke="#57534e" stroke-width="1.6"/>
+
+  <!-- I for distinct -->
+  <rect x="740" y="100" width="36" height="28" rx="8" fill="#ffedd5" stroke="#9a3412" stroke-width="1.6"/>
+  <text x="758" y="118" text-anchor="middle" font-size="14" font-weight="700" fill="#9a3412">ℐ</text>
+
+  <!-- z-1 for distinct -->
+  <rect x="796" y="100" width="44" height="28" rx="8" fill="#ffedd5" stroke="#9a3412" stroke-width="1.6"/>
+  <text x="818" y="118" text-anchor="middle" font-size="13" font-weight="700" fill="#9a3412">z⁻¹</text>
+  <text x="818" y="94" text-anchor="middle" font-size="10" fill="#9a3412" font-family="ui-sans-serif,system-ui,sans-serif">i = 旧权重</text>
+
+  <path d="M716 186 V114 H740" fill="none" stroke="#9a3412" stroke-width="1.25" marker-end="url(#f1-arrA)"/>
+  <path d="M776 114 H796" stroke="#9a3412" stroke-width="1.25" marker-end="url(#f1-arrA)"/>
+
+  <!-- H -->
+  <rect x="780" y="170" width="56" height="32" rx="8" fill="#ffedd5" stroke="#9a3412" stroke-width="1.6"/>
+  <text x="808" y="190" text-anchor="middle" font-size="14" font-weight="700" fill="#9a3412">↑H</text>
+
+  <!-- z-1 to H -->
+  <path d="M818 128 V170" stroke="#9a3412" stroke-width="1.6" marker-end="url(#f1-arrA)"/>
+  <!-- delta to H -->
+  <path d="M716 186 H780" stroke="#57534e" stroke-width="1.6" marker-end="url(#f1-arr)"/>
+  <text x="748" y="178" font-size="9" fill="#57534e" font-family="ui-sans-serif,system-ui,sans-serif">本批 d</text>
+
+  <!-- ΔV -->
+  <rect x="870" y="170" width="52" height="32" rx="8" fill="#fff" stroke="#1c1917" stroke-width="1.6"/>
+  <text x="896" y="190" text-anchor="middle" font-size="14" font-weight="700" fill="#1c1917">ΔV</text>
+  <path d="M836 186 H870" stroke="#57534e" stroke-width="1.6" marker-end="url(#f1-arr)"/>
+
+  <!-- legend -->
+  <g transform="translate(640,300)" font-family="ui-sans-serif,system-ui,sans-serif">
+    <rect width="310" height="100" rx="10" fill="#fffdf8" stroke="#e8e0d4"/>
+    <text x="12" y="20" font-size="11" font-weight="700" fill="#1c1917">读图要点（论文 Figure 1）</text>
+    <rect x="12" y="32" width="14" height="12" rx="8" fill="#ffedd5" stroke="#9a3412"/>
+    <text x="32" y="42" font-size="10" fill="#57534e">强调节点：ℐ / z⁻¹ / ↑H（状态与边界）</text>
+    <text x="12" y="62" font-size="10" fill="#57534e">· 3 个 ℐ：join 左右各一 + distinct 一</text>
+    <text x="12" y="78" font-size="10" fill="#57534e">· 3 个 ↑⋈：ΔL⋈R_old · L_old⋈ΔR · ΔL⋈ΔR</text>
+    <text x="12" y="94" font-size="10" fill="#57534e">· ↑H(z⁻¹(ℐ(d)), d) 实现 (↑distinct)ᵈ</text>
+  </g>
+</svg>
+<p class="diagram-cap">图：论文 Figure 1 — §4.4 最终增量电路。线性 σ/π 直接处理本批变化；join 用双线性三项并保留两侧旧关系；distinct 用 ℐ/z⁻¹ 提供旧权重后经 ↑H 输出存在性边界变化。</p>
+</figure>
+<details class="ascii-ref"><summary>ASCII 对照（论文 Figure 1 拓扑，课内原图）</summary>
+<div class="formula">Δt ──→ ↑σ<sub>a&gt;2</sub> ──→ ↑π<sub>x,id</sub> ──→ ℐ ──→ z⁻¹ ──┐
+         │                                    ├─→ ↑⋈ ──┐
+         └───────────────(本批左变化)──────────┘        │
+                                                        ├─→ (+) ──→ ↑π<sub>x,y</sub> ──→ ℐ ──→ z⁻¹ ─┐
+Δr ──→ ↑σ<sub>s&gt;5</sub> ──→ ↑π<sub>y,id</sub> ──→ ℐ ──→ z⁻¹ ──┐        │                              │
+         │                                    ├─→ ↑⋈ ──┤                              ├─→ ↑H ──→ ΔV
+         └───────────────(本批右变化)──────────┘        │                              │
+                              （第三项 ΔL ⋈ ΔR）──→ ↑⋈ ──┘         （本批经 π 后的变化）─┘</div>
+</details>
+<p class="cite">用了哪条规则：线性定理（σ／π）、双线性 join（Theorem 3.4）、distinct 增量（Proposition 4.7 的 <span class="mono">H</span>）。论文指出：最终电路含三个积分（join 两侧各一、distinct 一）与三个 join 算子；但每个算子对本批输入的工作量与变化规模成比例，而非完整关系规模。</p>
+<div class="callout good"><strong>对照本课主线：</strong>本例无 join／distinct 节点，化简停在各线性算子与 makeset 的局部差；§4.4 额外展示 distinct consolidation 收成一个，以及 join／distinct 各自带上持久状态。</div>
+</section>
+
+<section>
+<h2>6. 一个事务逐层执行</h2>
+<p>事务开始前沿用固定完整快照：</p>
+<div class="formula">X<sub>old</sub> =
+{A(East,10)↦1, B(East,20)↦1,
+ C(West,30)↦1, D(East,25)↦1}
+
+Q(X<sub>old</sub>) =
+{(East,45)↦1, (West,30)↦1}</div>
+<p>本批删除 B(East,20)，插入 E(East,35)：</p>
+<div class="formula">d<sub>t</sub> =
+{B(East,20)↦−1, E(East,35)↦1}</div>
+
+<h3>6.1 Filter：两条变化都通过</h3>
+<div class="formula">F(d<sub>t</sub>)
+= {B(East,20)↦−1, E(East,35)↦1}
+  // 依据：20 与 35 都满足 amount ≥ 20，F 保留各自权重</div>
+
+<h3>6.2 Project：得到同一个 East 键下的金额变化</h3>
+<div class="formula">P(F(d<sub>t</sub>))
+= {(East,20)↦−1, (East,35)↦1}
+  // 依据：P 映射记录形状，权重 −1 与 +1 不变</div>
+
+<h3>6.3 Grouping：只有 East grouping 变化</h3>
+<div class="formula">G<sub>p</sub>(P(F(d<sub>t</sub>)))[East]
+= {(East,20)↦−1, (East,35)↦1}
+  // 依据：两条 Pair 的分组键都是 East
+
+G<sub>p</sub>(P(F(d<sub>t</sub>)))[West] = ∅
+  // 依据：本批没有 West 记录</div>
+<p>因此无需重新计算 West grouping。</p>
+
+<h3>6.4 a<sub>SUM</sub>：更新 East 内部标量</h3>
+<div class="formula">Δsum[East]
+= 20×(−1) + 35×(+1)
+  // 依据：a<sub>SUM</sub> 的加权和定义
+
+= +15
+  // 依据：整数运算
+
+sum<sub>new</sub>[East]
+= sum<sub>old</sub>[East] + Δsum[East]
+  // 依据：a<sub>SUM</sub> 的线性
+
+= 45 + 15
+= 60
+  // 依据：旧状态与整数运算</div>
+<p>同批 <span class="mono">Δcount=(−1)+(+1)=0</span>，所以 East 组仍存在。<span class="mono">+15</span> 是内部标量变化，不是 SQL 输出行。</p>
+
+<h3>6.5 makeset：构造新旧结果行之差</h3>
+<div class="formula">out<sub>old</sub>[East]
+= makeset((East,45))
+= {(East,45)↦1}
+  // 依据：旧总和与 makeset 定义
+
+out<sub>new</sub>[East]
+= makeset((East,60))
+= {(East,60)↦1}
+  // 依据：新总和与 makeset 定义
+
+ΔV<sub>t</sub>[East]
+= out<sub>new</sub>[East] − out<sub>old</sub>[East]
+  // 依据：朴素增量要求的新结果减旧结果
+
+= −(East,45) + (East,60)
+  // 依据：Z-set 减法</div>
+<div class="callout bad"><strong>不能输出 +(East,15)。</strong>它会新增一条 total=15 的结果行，却不会撤回旧的 total=45。内部 <span class="mono">Δsum=+15</span> 与外部关系变化 <span class="mono">−(East,45)+(East,60)</span> 是不同类型的对象。</div>
+</section>
+
+<section>
+<h2>7. 用全量重算验证增量结果</h2>
+<p>应用事务后：</p>
+<div class="formula">X<sub>new</sub> = X<sub>old</sub> + d<sub>t</sub>
+= {A(East,10)↦1, C(West,30)↦1,
+   D(East,25)↦1, E(East,35)↦1}
+  // 依据：删除 B 的 −1 与原权重 +1 抵消，再加入 E</div>
+<p>全量执行原 SQL：A10 被过滤；East 为 D25+E35=60，West 仍为 C30。</p>
+<div class="formula">Q(X<sub>new</sub>)
+= {(East,60)↦1, (West,30)↦1}
+  // 依据：对新完整快照执行原 SQL
+
+Q(X<sub>new</sub>) − Q(X<sub>old</sub>)
+= {(East,60)↦1, (West,30)↦1}
+  − {(East,45)↦1, (West,30)↦1}
+  // 依据：输出增量定义
+
+= −(East,45) + (East,60)
+  // 依据：相同的 West30 权重 +1 与 −1 抵消</div>
+<div class="callout good">全量验证得到的输出变化与逐层高效实现完全一致。</div>
+</section>
+
+<section>
+<h2>8. 朴素形式与高效形式对照</h2>
+<div class="grid">
+<div class="card">
+<h3>朴素形式</h3>
+<p class="mono">(↑Q)<sup>Δ</sup> = 𝒟 ∘ ↑Q ∘ ℐ</p>
+<ol>
+<li>把变化流积分成完整订单快照。</li>
+<li>每批对完整快照运行整个 Q。</li>
+<li>对相邻完整结果做差。</li>
+</ol>
+<p>价值：定义任何实现都必须产生的正确输出。</p>
+</div>
+<div class="card">
+<h3>高效形式</h3>
+<ol>
+<li>F、P、G<sub>p</sub> 直接处理本批变化。</li>
+<li>只更新本批变化涉及的 East grouping。</li>
+<li>a<sub>SUM</sub> 线性更新 45+15=60。</li>
+<li>makeset 局部产生 −East45+East60。</li>
+</ol>
+<p>价值：在保持相同输出的前提下，跳过未变化记录和未变化 grouping。</p>
+</div>
+</div>
+<p>链式法则负责把整体结果定义连接到局部边界；实际减少工作量的是 filter、project、grouping、<span class="mono">a<sub>SUM</sub></span> 的线性化简与 <span class="mono">makeset</span> 的局部增量实现。</p>
+</section>
+
+<section>
+<h2>9. 边界：组创建与组消失</h2>
+<p>本例是“组持续存在、总和改变”。另外两种情况仍由每个受影响 grouping 的 <span class="mono">out<sub>new</sub>−out<sub>old</sub></span> 统一处理：</p>
+<table>
+<thead><tr><th>旧 count</th><th>新 count</th><th>该组输出变化</th></tr></thead>
+<tbody>
+<tr><td>0</td><td>&gt; 0</td><td class="mono">+(g,sum<sub>new</sub>)</td></tr>
+<tr><td>&gt; 0</td><td>0</td><td class="mono">−(g,sum<sub>old</sub>)</td></tr>
+<tr><td>&gt; 0</td><td>&gt; 0</td><td class="mono">−(g,sum<sub>old</sub>)+(g,sum<sub>new</sub>)</td></tr>
+</tbody>
+</table>
+<p>COUNT 用于判断 grouping 是否存在，不能只用 sum 判断，因为非空组的总和也可能恰为 0。本课 SQL 没有显式 distinct，因此没有额外的 distinct 增量状态。</p>
+</section>
+
+<section>
+<h2>10. 效率从哪来：论文 §4.5 复杂度对照</h2>
+<p>记 <span class="mono">C[t] = ‖s[t]‖</span> 为本批变化流在时刻 <span class="mono">t</span> 的规模，<span class="mono">R[t] = ‖ℐ(s)[t]‖</span> 为积分后完整关系的规模。未化简的朴素增量 <span class="mono">𝒟 ∘ ↑Q ∘ ℐ</span> 在完整关系上求值，时间是 <span class="mono">R[t]</span> 的函数，并因 <span class="mono">ℐ</span>／<span class="mono">𝒟</span> 使用 <span class="mono">O(R[t])</span> 内存。§3 的局部化简把多数算子的时间压到 <span class="mono">C[t]</span> 的函数；在 <span class="mono">C[t] ≪ R[t]</span> 时带来实质加速。论文 §4.5 对各算子类别的结论如下：</p>
+<table>
+<thead>
+<tr><th>算子类别</th><th>每批时间复杂度</th><th>持久状态</th><th>对应课程</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>线性算子（filter、project、grouping、<span class="mono">a<sub>SUM</sub></span> 等）</td>
+<td class="mono">O(C[t])</td>
+<td class="mono">0</td>
+<td>0005：零状态，直接处理本批变化</td>
+</tr>
+<tr>
+<td>双线性算子（join、笛卡尔积）</td>
+<td class="mono">O(C[t]²)</td>
+<td class="mono">O(R[t])</td>
+<td>0006：两侧旧状态 + 三项公式</td>
+</tr>
+<tr>
+<td><span class="mono">distinct</span>（经 <span class="mono">H</span> 实现）</td>
+<td class="mono">O(C[t])</td>
+<td class="mono">O(R[t])</td>
+<td>0007：按键维护 multiplicity／H</td>
+</tr>
+<tr>
+<td>分组聚合中的非线性层（makeset／emit）</td>
+<td>与变化涉及的 grouping 规模成比例</td>
+<td>按组保存 count／sum 等</td>
+<td>0008：按组状态；只重算变化的 grouping</td>
+</tr>
+</tbody>
+</table>
+<p class="cite">出处：DBSP 论文 §4.5（线性 Theorem 3.3；双线性 Theorem 3.4；distinct Proposition 4.7）；分组聚合效率边界见 §7.4。表中 <span class="mono">ℐ</span> 本身虽占 <span class="mono">O(R[t])</span> 内存，求值时间仍为 <span class="mono">O(C[t])</span>（本批输出中的值必出现在本批输入变化中）。</p>
+<div class="callout warn"><strong>增量化成本不均摊。</strong>线性算子不保留持久状态；join 与 distinct 需要 <span class="mono">O(R[t])</span> 状态。状态需求全部来自非线性（及双线性）算子——不是「整条查询平均摊一点状态」，而是哪些节点打破了「只看本批变化」决定了内存画像。</div>
+</section>
+
+<section>
+<h2>11. 小结</h2>
+<ol>
+<li>Algorithm 4.8 的路径是：查询翻译 → distinct consolidation → Lift → <span class="mono">𝒟 ∘ ↑Q ∘ ℐ</span> → 链式分解与局部化简。</li>
+<li>distinct consolidation 依据 Prop. 4.5（可推迟）与 Prop. 4.6（链末只留一个），消除 Table 1 翻译带来的冗余 distinct。</li>
+<li><span class="mono">(↑Q)<sup>Δ</sup> = 𝒟 ∘ ↑Q ∘ ℐ</span> 定义正确输出，但直接执行会恢复完整快照并重跑 Q。</li>
+<li>链式法则提供分解与正确性连接；效率来自各基础算子的增量规则。</li>
+<li>论文 §4.4 例子把集合查询从「多 distinct 快照电路」经 consolidation、Lift、朴素增量、链式展开，化到 Figure 1 的 join／distinct 状态电路。</li>
+<li><span class="mono">F</span>、<span class="mono">P</span>、<span class="mono">G<sub>p</sub></span>、<span class="mono">a<sub>SUM</sub></span> 线性；makeset 不线性，只对变化的 grouping 构造新旧结果行之差。</li>
+<li>本批 East 内部总和变化是 +15，最终关系变化是 <span class="mono">−(East,45)+(East,60)</span>。</li>
+<li>§4.5：线性 <span class="mono">O(C[t])</span>／零状态；join <span class="mono">O(C[t]²)</span>／<span class="mono">O(R[t])</span> 状态；distinct <span class="mono">O(C[t])</span>／<span class="mono">O(R[t])</span> 状态。状态全部来自非（双）线性算子。</li>
+</ol>
+</section>
+
+<section>
+<h2>12. 理解检查</h2>
+<div class="quiz" data-answer="1" data-explain="Algorithm 4.8 先 Lift 整条快照电路，再用 ℐ 和 𝒟 构造朴素增量。">
+<div class="q">Algorithm 4.8 中，快照电路 Q 在构造朴素增量前先变成什么？</div>
+<div class="options"><button class="opt">a<sub>SUM</sub></button><button class="opt">流算子 ↑Q</button><button class="opt">一个隐式 distinct</button></div><div class="feedback"></div>
+</div>
+<div class="quiz" data-answer="2" data-explain="链式法则连接局部正确性；各基础算子的局部化简才减少计算量。">
+<div class="q">本例中真正带来效率的是什么？</div>
+<div class="options"><button class="opt">只写出链式法则</button><button class="opt">把 project 改成隐式 distinct</button><button class="opt">线性层直接处理变化，并只重算变化的 grouping</button></div><div class="feedback"></div>
+</div>
+<div class="quiz" data-answer="0" data-explain="内部 sum 从 45 变为 60，结果关系必须撤回旧行并插入新行。">
+<div class="q">East 的内部 Δsum=+15 时，正确输出变化是什么？</div>
+<div class="options"><button class="opt">−(East,45)+(East,60)</button><button class="opt">+(East,15)</button><button class="opt">+(East,60)</button></div><div class="feedback"></div>
+</div>
+<div class="quiz" data-answer="1" data-explain="分组算子与每组 SUM 线性；makeset 不线性。">
+<div class="q">关于分组聚合各层，哪项正确？</div>
+<div class="options"><button class="opt">makeset 线性</button><button class="opt">G<sub>p</sub> 与 a<sub>SUM</sub> 线性，makeset 不线性</button><button class="opt">整个 GROUP BY 必须每批重算所有 grouping</button></div><div class="feedback"></div>
+</div>
+</section>
+
+<nav>
+<a href="0009-sql-to-zset-circuit.html">← 上一课</a>
+<a href="index.html">课程目录</a>
+<a href="0011-recursion-cycle-rule.html">下一课 →</a>
+</nav>
+<footer>DBSP IVM 教学文档 · 本课按 Algorithm 4.8 将快照电路机械转换为增量电路。 · <a href="index.html">课程目录</a></footer>
+</div>
+<script>
+document.querySelectorAll('.quiz').forEach(q=>{
+  q.querySelectorAll('.opt').forEach((b,i)=>b.addEventListener('click',()=>{
+    if(q.dataset.done)return;
+    q.dataset.done='1';
+    const ok=i===Number(q.dataset.answer);
+    b.classList.add(ok?'correct':'wrong');
+    q.querySelectorAll('.opt').forEach((x,j)=>{
+      x.disabled=true;
+      if(j===Number(q.dataset.answer))x.classList.add('correct');
+    });
+    const f=q.querySelector('.feedback');
+    f.textContent=(ok?'✓ ':'✗ ')+q.dataset.explain;
+    f.classList.add('show');
+  }));
+});
+</script>
+</body>
+</html>

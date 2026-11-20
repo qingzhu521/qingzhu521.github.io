@@ -1,0 +1,32 @@
+<link rel="stylesheet" href="{{ '/assets/css/recursive-correction-demo.css' | relative_url }}">
+<section id="recursive-correction-demo" aria-labelledby="rc-title">
+  <h4 id="rc-title">一步步计算甲的修正</h4>
+  <p class="rc-intro">每一步固定一个逻辑时间。只有两个坐标都不超过它的历史，才参与累计。</p>
+  <div class="rc-steps" role="group" aria-label="选择计算步骤" hidden></div>
+  <div class="rc-heading" aria-live="polite" aria-atomic="true">
+    <strong data-rc="heading">第 1 / 4 步：收到直接支持</strong>
+    <p data-rc="detail">P→甲产生第一份输入。计算时间为 (0,0)。</p>
+  </div>
+  <div class="rc-histories">
+    <div class="rc-history">
+      <h5>输入历史</h5>
+      <table><thead><tr><th scope="col">时间</th><th scope="col">变化</th><th scope="col">本次计入</th></tr></thead><tbody data-rc="input"><tr><td>(0,0)</td><td>+1</td><td>是</td></tr></tbody></table>
+      <p>输入累计权重：<strong data-rc="input-sum">1</strong></p>
+    </div>
+    <div class="rc-history">
+      <h5>输出历史 · 本次修正前</h5>
+      <table><thead><tr><th scope="col">时间</th><th scope="col">变化</th><th scope="col">本次计入</th></tr></thead><tbody data-rc="output"><tr><td colspan="3">还没有输出</td></tr></tbody></table>
+      <p>已有输出：<strong data-rc="output-sum">0</strong></p>
+    </div>
+  </div>
+  <p class="rc-equation" data-rc="equation">目标输出 1 − 已有输出 0 = 本次修正 +1</p>
+  <p class="rc-result" data-rc="result" aria-live="polite">发送甲 @(0,0) +1，并写入输出历史。</p>
+  <div class="rc-controls" hidden>
+    <button type="button" data-rc="previous">上一步</button>
+    <button type="button" data-rc="next">下一步</button>
+    <button type="button" data-rc="reset">回到开头</button>
+  </div>
+  <p class="rc-footnote">这是按逻辑时间展开的计算。界面中的先后顺序不代表所有消息的物理到达顺序。</p>
+  <noscript><p>完整过程见下文表格。四步修正依次为 +1、0、−1、+1。</p></noscript>
+</section>
+<script src="{{ '/assets/js/recursive-correction-demo.js' | relative_url }}" defer></script>

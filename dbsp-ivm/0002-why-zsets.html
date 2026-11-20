@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>第 2 课 · 为什么需要 Z-set</title>
+<style>
+:root{--bg:#f4f1eb;--paper:#fffdf8;--ink:#1c1917;--muted:#57534e;--line:#e8e0d4;--accent:#9a3412;--accent-soft:#ffedd5;--teal:#0f766e;--teal-soft:#ccfbf1;--good:#166534;--good-soft:#dcfce7;--bad:#991b1b;--bad-soft:#fee2e2;--purple:#6d28d9;--purple-soft:#ede9fe;--code:#1c1917;--shadow:0 10px 28px rgba(28,25,23,.06)}
+*{box-sizing:border-box}
+body{margin:0;color:var(--ink);font-family:"Iowan Old Style","Palatino Linotype",Palatino,"Songti SC","Noto Serif SC",serif;line-height:1.68;background:radial-gradient(900px 480px at 0 0,#ffedd5 0,transparent 55%),radial-gradient(800px 420px at 100% 10%,#ccfbf155 0,transparent 50%),var(--bg)}
+.wrap{max-width:920px;margin:0 auto;padding:36px 18px 72px}
+.eyebrow{font-family:ui-sans-serif,system-ui,sans-serif;font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+h1{font-size:clamp(1.75rem,3vw,2.35rem);line-height:1.2;margin:10px 0 12px}
+.lead{color:var(--muted);font-size:1.07rem}
+.cite{font-family:ui-sans-serif, system-ui, sans-serif;font-size:.88rem;color:var(--muted)}
+a{color:var(--teal)}
+section{background:var(--paper);border:1px solid var(--line);border-radius:18px;padding:22px;margin:18px 0;box-shadow:var(--shadow)}
+h2{margin:0 0 11px;font-size:1.25rem}
+h3{margin:20px 0 8px;font-size:1.06rem}
+p{margin:0 0 12px}
+ul, ol{margin:0 0 12px;padding-left:1.25em}
+li{margin:.25em 0}
+table{width:100%;border-collapse:collapse;margin:10px 0 14px;font-size:.9rem;font-family:ui-sans-serif,system-ui,sans-serif}
+th, td{border:1px solid var(--line);padding:8px 10px}
+th{background:#faf6f0;padding:8px 10px}
+.mono{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;font-size:.9rem}
+.formula{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--code);color:#fafaf9;padding:15px 17px;border-radius:12px;overflow:auto;margin:12px 0;line-height:1.6;white-space:pre-wrap}
+.callout{border-left:4px solid var(--teal);padding:12px 14px;background:var(--teal-soft);border-radius:0 12px 12px 0;margin:14px 0;font-family:ui-sans-serif,system-ui,sans-serif;font-size:.95rem}
+.callout.warn{border-left-color:var(--accent);background:var(--accent-soft)}
+.callout.good{border-left-color:var(--good);background:var(--good-soft)}
+.callout.bad{border-left-color:var(--bad);background:var(--bad-soft)}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width: 720px){.grid-2{grid-template-columns:1fr}}}
+.card{border:1px solid var(--line);border-radius:12px;padding:13px;background:#fffcf7}
+.card h4{margin:0 0 8px;font-family:ui-sans-serif, system-ui, sans-serif;font-size:.8rem;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.pos{color:var(--good);font-weight:700}
+.neg{color:var(--bad);font-weight:700}
+.quiz{border:1px solid var(--line);border-radius:14px;padding:14px;margin:12px 0;background:#fff}
+.quiz .q{font-family:ui-sans-serif, system-ui, sans-serif;font-weight:700;margin-bottom:10px}
+.options{display:grid;gap:8px}
+button.opt{text-align:left;border:1px solid var(--line);background:#fff;border-radius:10px;padding:10px 12px;cursor:pointer;font:inherit;font-family:ui-sans-serif, system-ui, sans-serif;font-size:.92rem}
+button.opt:hover{border-color:var(--accent)}
+button.opt.correct{background:var(--good-soft);border-color:var(--good)}
+button.opt.wrong{background:var(--bad-soft);border-color:var(--bad)}
+button.opt:disabled{cursor:default}
+.feedback{display:none;margin-top:10px;font-family:ui-sans-serif, system-ui, sans-serif;font-size:.92rem}
+.feedback.show{display:block}
+.lab{border:2px solid var(--accent);border-radius:16px;padding:16px;background:linear-gradient(180deg, #fff7ed, #fff)}
+.lab h3{margin-top:0}
+.row{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0;font-family:ui-sans-serif, system-ui, sans-serif}
+.row input[type="text"]{border:1px solid var(--line);border-radius:8px;padding:6px 8px;font:inherit;min-width:200px}
+button.primary{background:var(--accent);color:#fff;border:none;border-radius:10px;padding:10px 14px;font-family:ui-sans-serif, system-ui, sans-serif;font-weight:700;cursor:pointer}
+#labOut{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;white-space:pre-wrap;background:#1c1917;color:#fafaf9;border-radius:12px;padding:12px;min-height:140px;margin-top:10px}
+.tag{display:inline-block;background:#fff;border:1px solid var(--line);border-radius:999px;padding:2px 8px;font-size:12px;font-family:ui-sans-serif,system-ui,sans-serif;color:var(--muted)}
+footer{margin-top:28px;color:var(--muted);font-size:.88rem;font-family:ui-sans-serif,system-ui,sans-serif}
+.compare td:first-child{font-weight:700;white-space:nowrap}
+/* Mathematical subscripts/superscripts: keep indices attached to their base symbol. */
+  .formula sub, .formula sup, .mono sub, .mono sup, .math sub, .math sup{font-size:0.74em;line-height:0;position:relative;vertical-align:baseline}
+.formula sup, .mono sup, .math sup{top:-0.52em}
+.formula sub, .mono sub, .math sub{bottom:-0.20em}
+header{margin-bottom:28px}
+nav{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;margin:24px 0;font-family:ui-sans-serif,system-ui,sans-serif}
+nav a{border:1px solid var(--line);border-radius:12px;background:#fff;padding:10px 14px;text-decoration:none;font-weight:700;color:var(--teal)}
+.callout.purple{border-left-color:var(--purple);background:var(--purple-soft)}
+
+.course-byline { margin: 0 0 12px; color: var(--accent); font: 1rem/1.6 ui-sans-serif, system-ui, sans-serif; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+<div class="eyebrow">DBSP 教学 · Lesson 0002 · 约 15–20 分钟</div>
+<h1>为什么普通集合不够用：Z-set 用「整数权重」统一数据与变化</h1>
+<p class="course-byline">教程制作 · <strong>李金懋</strong>（OceanBase）</p>
+
+<p class="lead">本课为数据库快照和变化提供统一的数据类型：Z-set。整数权重使插入、删除、重复记录和状态相加都能使用同一套代数运算。</p>
+<p class="cite">
+        依据：
+        <a href="https://ar5iv.labs.arxiv.org/html/2203.16684" rel="noopener" target="_blank">DBSP §4.1 ℤ-sets as an abelian group</a>
+        · 论文例子：<span class="mono">{joe ↦ 1, anne ↦ −1}</span>
+        ·
+        <a href="https://arxiv.org/abs/2203.16684" rel="noopener" target="_blank">arXiv:2203.16684</a>
+</p>
+</header>
+<section>
+<h2>1. 普通集合为什么不够用？</h2>
+<p>看一张会员表（先当集合）：</p>
+<div class="formula">S = { alice, bob }</div>
+<div class="grid-2">
+<div class="card">
+<h4>插入还好说</h4>
+<p class="mono">S ∪ {carol} = {alice, bob, carol}</p>
+<p>并集在集合世界里封闭。</p>
+</div>
+<div class="card">
+<h4>删除也「好像」可以</h4>
+<p class="mono">S \ {bob} = {alice}</p>
+<p>集合差有定义——但前提是你知道「差」是特殊运算，不是「加一个负的 bob」。</p>
+</div>
+</div>
+<h3>真正麻烦的三件事</h3>
+<ol>
+<li><strong>变化与快照类型不统一。</strong><br/>
+          快照是集合；变化却需要记录「删了谁」。若变化也想用同一种对象表示，集合做不到「带负号的元素」。</li>
+<li><strong>没有逆元，就不好谈「群上的积分/微分」。</strong><br/>
+          快照与变化的累加 / 差分，数学上要在<strong>交换群</strong>上才干净：每个元素 x 都有 −x，且 x + (−x) = 0。</li>
+<li><strong>多重出现与去重语义纠缠。</strong><br/>
+          SQL 的 <span class="mono">UNION ALL</span> vs <span class="mono">UNION</span>、<span class="mono">COUNT(*)</span> vs <span class="mono">COUNT(DISTINCT)</span>，集合一层表示力不够，需要「计数」。</li>
+</ol>
+<div class="callout warn">
+        人话总结：增量维护既要「加一行」，也要「减一行」，还要把很多次变化加在一起。
+        集合只会「在不在」，不会「加多少 / 减多少」。
+      </div>
+</section>
+<section>
+<h2>2. Z-set：给每个值挂一个整数权重</h2>
+<p>论文定义（人话版）：</p>
+<div class="callout">
+<strong>Z-set</strong> = 从「可能出现的值」到「整数」的映射，且只有有限个值权重非 0。<br/>
+        写作 <span class="mono">{值 ↦ 权重, ...}</span>。权重也叫 multiplicity。
+      </div>
+<table>
+<thead>
+<tr><th>对象</th><th>集合写法</th><th>Z-set 写法</th><th>含义</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>快照</td>
+<td class="mono">{alice, bob}</td>
+<td class="mono">{alice ↦ 1, bob ↦ 1}</td>
+<td>每人都「出现 1 次」</td>
+</tr>
+<tr>
+<td>插入 carol</td>
+<td class="mono">∪ {carol}</td>
+<td class="mono">{carol ↦ 1}</td>
+<td>权重 +1</td>
+</tr>
+<tr>
+<td>删除 bob</td>
+<td class="mono">\ {bob}</td>
+<td class="mono">{bob ↦ −1}</td>
+<td>在变化流中，权重 −1 表示删除 / 撤销一次</td>
+</tr>
+<tr>
+<td>混合变化</td>
+<td>（难写）</td>
+<td class="mono">{carol ↦ 1, bob ↦ −1}</td>
+<td>同一次事务里又插又删</td>
+</tr>
+</tbody>
+</table>
+<p>论文里的玩具例子（字符串上的 Z-set）：</p>
+<div class="formula">R = { joe ↦ 1, anne ↦ −1 }
+
+读法：
+  R[joe]  = 1    → joe 以权重 +1 出现
+  R[anne] = −1   → anne 以权重 −1 出现（像一条“删除 anne”的记录）
+  其它名字权重都是 0，视作不存在</div>
+<p class="cite">出处：DBSP §4.1 对 ℤ[A] 与 multiplicity 的定义与例子。</p>
+<h3>三种基本形态</h3>
+<div class="grid-2">
+<div class="card">
+<h4>像集合（set-like）</h4>
+<p>所有非零权重都是 <strong>+1</strong>。<br/>
+          例：<span class="mono">{a↦1, b↦1}</span></p>
+</div>
+<div class="card">
+<h4>像多重集 / bag</h4>
+<p>权重都是 <strong>≥ 0</strong> 的整数。<br/>
+          例：<span class="mono">{a↦3}</span> 表示 a 出现 3 次（UNION ALL 场景）。</p>
+</div>
+</div>
+<div class="card" style="margin-top:12px">
+<h4>像变化（change / delta）</h4>
+<p>权重可正可负。<br/>
+        例：<span class="mono">{a↦1, b↦−2}</span>：插入一个 a，删掉两个 b。</p>
+</div>
+<div class="callout good">
+<strong>统一表示：</strong>快照、变化、中间结果，全是同一种东西——Z-set。
+        “累加变化得到快照”现在有了统一类型。
+      </div>
+</section>
+<section>
+<h2>3. 运算：按「每个值」把权重相加</h2>
+<p>Z-set 的加法非常机械——对每个值，权重分别相加：</p>
+<div class="formula">({alice ↦ 1, bob ↦ 1}) + ({bob ↦ −1, carol ↦ 1})
+= {alice ↦ 1, bob ↦ 0, carol ↦ 1}
+= {alice ↦ 1, carol ↦ 1}          ← 权重 0 的直接丢掉</div>
+<p>减法 = 加「全部取负」：</p>
+<div class="formula">X − Y  :=  X + (−Y)
+−{bob ↦ 1} = {bob ↦ −1}</div>
+<p>零元：所有权重都是 0 的空映射，记作 <span class="mono">0</span> 或 <span class="mono">∅</span>。</p>
+<h3>用一组时间步重算快照</h3>
+<table class="compare">
+<thead>
+<tr><th>t</th><th>变化 Δ（Z-set）</th><th>快照 = 到目前为止的 ΣΔ</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td class="mono">∅</td>
+<td class="mono">∅</td>
+</tr>
+<tr>
+<td>1</td>
+<td class="mono"><span class="pos">{A:10 ↦ 1, B:20 ↦ 1}</span></td>
+<td class="mono">{A:10↦1, B:20↦1}</td>
+</tr>
+<tr>
+<td>2</td>
+<td class="mono"><span class="pos">{C:30 ↦ 1}</span></td>
+<td class="mono">{A:10↦1, B:20↦1, C:30↦1}</td>
+</tr>
+<tr>
+<td>3</td>
+<td class="mono"><span class="neg">{B:20 ↦ −1}</span></td>
+<td class="mono">{A:10↦1, C:30↦1}</td>
+</tr>
+<tr>
+<td>4</td>
+<td class="mono"><span class="neg">{A:10 ↦ −1}</span> + <span class="pos">{A:25 ↦ 1}</span></td>
+<td class="mono">{A:25↦1, C:30↦1}</td>
+</tr>
+</tbody>
+</table>
+<p>注意：这里把整行 <span class="mono">(id, amount)</span> 当作 Z-set 的「值」。更新 A 金额，必须拆成「删旧行 + 插新行」，因为旧行和新行是两个不同的值。</p>
+</section>
+<section>
+<h2>4. 「交换群」人话版</h2>
+<p>
+        先用一句话记住什么是<strong>群（group）</strong>：
+        一个集合配上一套二元运算，且满足几条公理——运算后还在集合里、可以结合、有单位元、每个元素有逆元。
+        多一条「运算可交换」就是<strong>交换群 / 阿贝尔群（abelian group）</strong>。
+      </p>
+<table>
+<thead>
+<tr><th>公理</th><th>抽象说法</th><th>Z-set 上长什么样</th></tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>封闭性</strong></td>
+<td>X、Y 在集合里 → X+Y 也在</td>
+<td>两个 Z-set 逐 key 加权重，还是 Z-set</td>
+</tr>
+<tr>
+<td><strong>结合律</strong></td>
+<td>(X+Y)+Z = X+(Y+Z)</td>
+<td>多次事务累加与加括号顺序无关</td>
+</tr>
+<tr>
+<td><strong>单位元</strong></td>
+<td>存在 0，X+0 = X</td>
+<td>空映射 ∅（所有权重为 0）</td>
+</tr>
+<tr>
+<td><strong>逆元</strong></td>
+<td>每个 X 有 −X，X+(−X)=0</td>
+<td>权重全部取反：删 = 加负权重</td>
+</tr>
+<tr>
+<td><strong>交换律</strong><br/><span class="cite">（交换群多这一条）</span></td>
+<td>X+Y = Y+X</td>
+<td>先插后删 vs 先删后插，最终权重一样则结果一样</td>
+</tr>
+</tbody>
+</table>
+<p>论文说 ℤ[A]（值域为 A 的 Z-set）构成交换群。可以压成三句：</p>
+<ol>
+<li><strong>可加（封闭 + 结合）：</strong>两个 Z-set 相加，还是 Z-set；连加与括号无关。</li>
+<li><strong>有零、有逆：</strong>空是 0；任意 X 都有 −X，且 X + (−X) = 0。</li>
+<li><strong>可交换：</strong>X + Y = Y + X。</li>
+</ol>
+<div class="callout">
+        为什么重要？因为积分 ℐ、微分 𝒟 是建在「流的值属于某个群」之上的——要会加、会减、有零。
+        普通集合缺少统一逆元；Z-set 使快照与变化的互转建立在同一种可加减的数据类型上。
+      </div>
+</section>
+<section>
+<h2>5. distinct：把“有几份”变成“是否存在”</h2>
+<p>
+  到这里，Z-set 已经能表示重复和删除：一条记录的权重可以是 <span class="mono">2</span>、<span class="mono">1</span>、<span class="mono">0</span> 或负数。
+  但有些 SQL 操作并不关心“有几份”，只关心“是否至少有一份”。<span class="mono">DISTINCT</span> 做的就是这件事。
+</p>
+<h3>先看一个重复记录</h3>
+<p>设输入 Z-set 为：</p>
+<div class="formula">m = {a↦2, b↦1}</div>
+<p>
+  它表示记录 <span class="mono">a</span> 有两份，记录 <span class="mono">b</span> 有一份。
+  对 <span class="mono">SELECT DISTINCT ...</span> 而言，两份 <span class="mono">a</span> 仍只应显示一次：
+</p>
+<div class="formula">distinct(m) = {a↦1, b↦1}</div>
+<table>
+<thead><tr><th>输入中记录 x 的权重</th><th>distinct 后 x 的权重</th><th>读法</th></tr></thead>
+<tbody>
+<tr><td class="mono">0</td><td class="mono">0</td><td>x 不存在</td></tr>
+<tr><td class="mono">1</td><td class="mono">1</td><td>x 存在一次</td></tr>
+<tr><td class="mono">2、3、…</td><td class="mono">1</td><td>x 虽有重复，但结果只保留一次</td></tr>
+</tbody>
+</table>
+<p>所以可以把它记成：<strong>正权重变成 1；非正权重变成 0。</strong></p>
+<div class="formula">distinct(m)[x] =
+  1   若 m[x] &gt; 0
+  0   若 m[x] ≤ 0</div>
+<h3>删除时，为什么不能过早忘掉计数？</h3>
+<p>从两份 <span class="mono">a</span> 开始：</p>
+<div class="formula">当前 m = {a↦2}
+distinct(m) = {a↦1}</div>
+<p>现在删除一份 <span class="mono">a</span>，变化是 <span class="mono">δ={a↦−1}</span>。Z-set 的加法先更新计数：</p>
+<div class="formula">m + δ = {a↦1}
+distinct(m + δ) = {a↦1}</div>
+<p>
+  虽然底层少了一份 <span class="mono">a</span>，但结果中 <span class="mono">a</span> 仍然存在，所以 <span class="mono">DISTINCT</span> 的输出不变。
+  只有再删除一份、使权重从 <span class="mono">1</span> 变成 <span class="mono">0</span> 时，输出才需要撤回 <span class="mono">a</span>。
+</p>
+<div class="callout good">
+<strong>这里 Z-set 加法和 distinct 的分工很清楚：</strong>
+  加法负责保留并更新精确计数；<span class="mono">distinct</span> 读取更新后的计数，再回答“记录是否存在”。
+  <span class="mono">distinct</span> 本身是作用在 Z-set 上的算子，输入和输出都是 Z-set。
+</div>
+<h3>为什么不能把 distinct 分到加法两边？</h3>
+<p>取两份来源各自提供一条相同记录：</p>
+<div class="formula">X = {a↦1},  Y = {a↦1}
+X + Y = {a↦2}</div>
+<p>正确做法是先合并计数，再去重：</p>
+<div class="formula">distinct(X + Y) = distinct({a↦2}) = {a↦1}</div>
+<p>若分别去重后再相加，仍会得到两份：</p>
+<div class="formula">distinct(X) + distinct(Y) = {a↦1} + {a↦1} = {a↦2}</div>
+<p>
+  因此 <span class="mono">distinct(X + Y)</span> 不等于 <span class="mono">distinct(X) + distinct(Y)</span>。
+  换句话说，<span class="mono">distinct</span> 不能像普通 Z-set 加法那样拆开计算：它必须看到合并后的总计数。
+</p>
+<h3>SQL 中何时会用到它？</h3>
+<table>
+<thead><tr><th>SQL</th><th>Z-set 直觉</th><th>原因</th></tr></thead>
+<tbody>
+<tr><td class="mono">UNION ALL</td><td><span class="mono">X + Y</span></td><td>保留两边带来的重复记录</td></tr>
+<tr><td class="mono">UNION</td><td><span class="mono">distinct(X + Y)</span></td><td>合并后去重</td></tr>
+<tr><td class="mono">EXCEPT</td><td><span class="mono">distinct(X − Y)</span></td><td>先相减，再只保留仍存在的记录</td></tr>
+</tbody>
+</table>
+<div class="callout warn">
+<strong>一句话小结：</strong>Z-set 用整数权重保存“有几份”；<span class="mono">distinct</span> 把这个计数压成“是否存在”。
+  它必须观察合并后的计数，因此不满足 <span class="mono">distinct(X+Y)=distinct(X)+distinct(Y)</span>。
+</div>
+<p class="cite">出处：DBSP Definition 4.3（distinct）；Table 1 中 UNION / EXCEPT 的翻译。</p>
+</section>
+<section>
+<h2>6. 快照与变化的统一表示</h2>
+<p>现在可以更准确地说：</p>
+<ul>
+<li>流里每个时刻的值，类型是 <strong>Z-set</strong>（不是裸集合）</li>
+<li>ℐ 对每个 key 做权重的前缀和；𝒟 对每个 key 做权重的相邻差</li>
+<li><span class="mono">amount=25</span> 是行内容；权重 <span class="mono">−1/+1</span> 是增删次数，两者不是一回事</li>
+<li>set-like 快照通常只有 0/1 权重；bag-like 快照可以有重复计数；负权重主要出现在<strong>变化</strong>和中间抵消过程中</li>
+</ul>
+<div class="formula">set-like 快照：每个 key 的权重为 0 或 +1
+bag-like 快照：每个 key 的权重为非负整数
+变化：权重可正可负；负权重用于撤销旧行或抵消已有权重
+快照 + 变化 → 新快照：逐 key 加权重</div>
+<p>快照更新在 Z-set 中写为：<span class="mono">X<sub>t</sub> = X<sub>t−1</sub> + d<sub>t</sub></span>。积分 <span class="mono">ℐ</span> 把一串 <span class="mono">d<sub>t</sub></span> 累加成 <span class="mono">X<sub>t</sub></span>，微分 <span class="mono">𝒟</span> 则把相邻 <span class="mono">X<sub>t</sub></span> 相减。</p>
+</section>
+<section>
+<h2>7. 小结</h2>
+<ul>
+<li><span class="tag">Z-set</span>：值 → 整数权重的有限映射</li>
+<li><span class="tag">正权重</span>偏插入 / 存在；<span class="tag">负权重</span>偏删除</li>
+<li>加法 = 逐值加权重；权重 0 = 不存在</li>
+<li>快照与变化<strong>同一类型</strong> → 才能干净地做 ℐ / 𝒟 与自动增量化</li>
+<li><span class="tag">distinct</span> 把计数压回集合语义；它是非线性算子</li>
+</ul>
+</section>
+<section>
+<h2>8. 理解检查</h2>
+<div class="quiz" data-answer="1">
+<div class="q">Q1. Z-set {a↦1, b↦1} + {b↦−1, c↦1} 的结果是？</div>
+<div class="options">
+<button class="opt" data-i="0">{a↦1, b↦1, c↦1}</button>
+<button class="opt" data-i="1">{a↦1, c↦1}</button>
+<button class="opt" data-i="2">{a↦1, b↦0, c↦1} 且必须保留 b↦0</button>
+<button class="opt" data-i="3">{a↦1, b↦−1, c↦1}</button>
+</div>
+<div class="feedback" data-bad="逐 key 加权重：b 抵消为 0 后丢掉。" data-ok="对：b 的 1+(−1)=0，权重 0 视作不存在，结果 {a↦1, c↦1}。"></div>
+</div>
+<div class="quiz" data-answer="2">
+<div class="q">Q2. 为什么说「集合不够用」的最核心原因是？</div>
+<div class="options">
+<button class="opt" data-i="0">集合不能表示字符串</button>
+<button class="opt" data-i="1">集合不能做笛卡尔积</button>
+<button class="opt" data-i="2">集合没有统一的负元，难以把「删除」与「快照」放进同一套可加减代数</button>
+<button class="opt" data-i="3">集合不能为空</button>
+</div>
+<div class="feedback" data-bad="回到第 1 节：缺的是「负权重 / 逆元 / 统一变化与快照」。" data-ok="对。IVM 需要可加可减的统一对象；Z-set 用整数权重补上逆元。"></div>
+</div>
+<div class="quiz" data-answer="0">
+<div class="q">Q3. distinct({a↦3, b↦−2, c↦1}) 等于？</div>
+<div class="options">
+<button class="opt" data-i="0">{a↦1, c↦1}</button>
+<button class="opt" data-i="1">{a↦3, c↦1}</button>
+<button class="opt" data-i="2">{a↦1, b↦1, c↦1}</button>
+<button class="opt" data-i="3">{a↦1, b↦−1, c↦1}</button>
+</div>
+<div class="feedback" data-bad="规则：&gt;0 → 1，否则 0。" data-ok="对：权重大于 0 的压成 1；≤0 的清成 0。b 被丢掉。"></div>
+</div>
+<div class="quiz" data-answer="3">
+<div class="q">Q4. 把行 A 的金额从 10 改成 25，在 Z-set 变化里通常怎么写？</div>
+<div class="options">
+<button class="opt" data-i="0">{(A,25) ↦ 1}</button>
+<button class="opt" data-i="1">{(A,10) ↦ −1}</button>
+<button class="opt" data-i="2">{A ↦ 25}</button>
+<button class="opt" data-i="3">{(A,10) ↦ −1, (A,25) ↦ 1}</button>
+</div>
+<div class="feedback" data-bad="不要把金额当成权重。权重是出现次数；金额是行内容的一部分。" data-ok="对：整行是值。改金额 = 删旧元组 + 插新元组。"></div>
+</div>
+</section>
+
+<nav>
+<a href="0001-snapshot-vs-change-stream.html">← 上一课</a>
+<a href="index.html">课程目录</a>
+<a href="0003-four-primitives.html">下一课 →</a>
+</nav>
+<footer>DBSP IVM 教学文档 · 严格记号中，增量算子作用于变化流；不会把快照与变化混写。 · <a href="index.html">课程目录</a></footer>
+</div>
+<script>
+  document.querySelectorAll('.quiz').forEach(quiz => {
+    const answer = Number(quiz.dataset.answer);
+    const feedback = quiz.querySelector('.feedback');
+    quiz.querySelectorAll('button.opt').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const i = Number(btn.dataset.i);
+        quiz.querySelectorAll('button.opt').forEach(b => {
+          b.disabled = true;
+          if (Number(b.dataset.i) === answer) b.classList.add('correct');
+        });
+        if (i === answer) {
+          btn.classList.add('correct');
+          feedback.textContent = feedback.dataset.ok;
+        } else {
+          btn.classList.add('wrong');
+          feedback.textContent = feedback.dataset.bad;
+        }
+        feedback.classList.add('show');
+      });
+    });
+  });
+
+</script>
+</body>
+</html>

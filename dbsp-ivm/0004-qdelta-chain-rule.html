@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>第 4 课 · (↑Q)^Δ 朴素增量与链式法则</title>
+<style>
+:root{--bg:#f4f1eb;--paper:#fffdf8;--ink:#1c1917;--muted:#57534e;--line:#e8e0d4;--accent:#9a3412;--accent-soft:#ffedd5;--teal:#0f766e;--teal-soft:#ccfbf1;--good:#166534;--good-soft:#dcfce7;--bad:#991b1b;--bad-soft:#fee2e2;--purple:#6d28d9;--purple-soft:#ede9fe;--code:#1c1917;--shadow:0 10px 28px rgba(28,25,23,.06)}
+*{box-sizing:border-box}
+body{margin:0;color:var(--ink);font-family:"Iowan Old Style","Palatino Linotype",Palatino,"Songti SC","Noto Serif SC",serif;line-height:1.68;background:radial-gradient(900px 480px at 0 0,#ffedd5 0,transparent 55%),radial-gradient(800px 420px at 100% 10%,#ccfbf155 0,transparent 50%),var(--bg)}
+.wrap{max-width:920px;margin:0 auto;padding:36px 18px 72px}
+.eyebrow{font-family:ui-sans-serif,system-ui,sans-serif;font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+h1{font-size:clamp(1.75rem,3vw,2.35rem);line-height:1.2;margin:10px 0 12px}
+.lead{color:var(--muted);font-size:1.07rem}
+.cite{font-family:ui-sans-serif, system-ui, sans-serif;font-size:.88rem;color:var(--muted)}
+a{color:var(--teal)}
+section{background:var(--paper);border:1px solid var(--line);border-radius:18px;padding:22px;margin:18px 0;box-shadow:var(--shadow)}
+h2{margin:0 0 11px;font-size:1.25rem}
+h3{margin:20px 0 8px;font-size:1.06rem}
+p{margin:0 0 12px}
+ul, ol{margin:0 0 12px;padding-left:1.25em}
+li{margin:.25em 0}
+table{width:100%;border-collapse:collapse;margin:10px 0 14px;font-size:.9rem;font-family:ui-sans-serif,system-ui,sans-serif}
+th, td{border:1px solid var(--line);padding:8px 10px}
+th{background:#faf6f0;padding:8px 10px}
+.mono{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;font-size:.9rem}
+.formula{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--code);color:#fafaf9;padding:15px 17px;border-radius:12px;overflow:auto;margin:12px 0;line-height:1.6;white-space:pre-wrap}
+.callout{border-left:4px solid var(--teal);padding:12px 14px;background:var(--teal-soft);border-radius:0 12px 12px 0;margin:14px 0;font-family:ui-sans-serif,system-ui,sans-serif;font-size:.95rem}
+.callout.warn{border-left-color:var(--accent);background:var(--accent-soft)}
+.callout.good{border-left-color:var(--good);background:var(--good-soft)}
+.callout.bad{border-left-color:var(--bad);background:var(--bad-soft)}
+.callout.purple{border-left-color:var(--purple);background:var(--purple-soft)}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width: 720px){.grid-2{grid-template-columns:1fr}}}
+.card{border:1px solid var(--line);border-radius:12px;padding:13px;background:#fffcf7}
+.card h4{margin:0 0 8px;font-family:ui-sans-serif, system-ui, sans-serif;font-size:.8rem;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.prim{display:inline-block;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;font-weight:700;background:var(--accent-soft);color:var(--accent);border-radius:8px;padding:1px 8px}
+.pos{color:var(--good);font-weight:700}
+.neg{color:var(--bad);font-weight:700}
+.quiz{border:1px solid var(--line);border-radius:14px;padding:14px;margin:12px 0;background:#fff}
+.quiz .q{font-family:ui-sans-serif, system-ui, sans-serif;font-weight:700;margin-bottom:10px}
+.options{display:grid;gap:8px}
+button.opt{text-align:left;border:1px solid var(--line);background:#fff;border-radius:10px;padding:10px 12px;cursor:pointer;font:inherit;font-family:ui-sans-serif, system-ui, sans-serif;font-size:.92rem}
+button.opt:hover{border-color:var(--accent)}
+button.opt.correct{background:var(--good-soft);border-color:var(--good)}
+button.opt.wrong{background:var(--bad-soft);border-color:var(--bad)}
+button.opt:disabled{cursor:default}
+.feedback{display:none;margin-top:10px;font-family:ui-sans-serif, system-ui, sans-serif;font-size:.92rem}
+.feedback.show{display:block}
+.lab{border:2px solid var(--accent);border-radius:16px;padding:16px;background:linear-gradient(180deg, #fff7ed, #fff)}
+.lab h3{margin-top:0}
+.row{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0;align-items:center;font-family:ui-sans-serif, system-ui, sans-serif}
+button.primary{background:var(--accent);color:#fff;border:none;border-radius:10px;padding:10px 14px;font-family:ui-sans-serif, system-ui, sans-serif;font-weight:700;cursor:pointer}
+button.ghost{background:#fff;color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-family:ui-sans-serif, system-ui, sans-serif;cursor:pointer;font-size:.9rem}
+#labOut{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;white-space:pre-wrap;background:#1c1917;color:#fafaf9;border-radius:12px;padding:12px;min-height:160px;margin-top:10px}
+.tag{display:inline-block;background:#fff;border:1px solid var(--line);border-radius:999px;padding:2px 8px;font-size:12px;font-family:ui-sans-serif,system-ui,sans-serif;color:var(--muted)}
+footer{margin-top:28px;color:var(--muted);font-size:.88rem;font-family:ui-sans-serif,system-ui,sans-serif}
+.pipeline{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-family:ui-sans-serif, system-ui, sans-serif;margin:12px 0}
+.pipeline .box{border:2px solid var(--ink);border-radius:12px;padding:10px 14px;background:#fff;font-weight:700}
+.pipeline .box.i{border-color:var(--teal);color:var(--teal);background:var(--teal-soft)}
+.pipeline .box.q{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.pipeline .box.d{border-color:var(--purple);color:var(--purple);background:var(--purple-soft)}
+.pipeline .box.ok{border-color:var(--good);color:var(--good);background:var(--good-soft)}
+.pipeline .arrow{color:var(--muted);font-size:1.2rem}
+.stream-row td:first-child{font-weight:700;white-space:nowrap;width:40px}
+/* Mathematical subscripts/superscripts: keep indices attached to their base symbol. */
+  .formula sub, .formula sup, .mono sub, .mono sup, .math sub, .math sup{font-size:0.74em;line-height:0;position:relative;vertical-align:baseline}
+.formula sup, .mono sup, .math sup{top:-0.52em}
+.formula sub, .mono sub, .math sub{bottom:-0.20em}
+header{margin-bottom:28px}
+nav{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;margin:24px 0;font-family:ui-sans-serif,system-ui,sans-serif}
+nav a{border:1px solid var(--line);border-radius:12px;background:#fff;padding:10px 14px;text-decoration:none;font-weight:700;color:var(--teal)}
+
+.course-byline { margin: 0 0 12px; color: var(--accent); font: 1rem/1.6 ui-sans-serif, system-ui, sans-serif; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+<div class="eyebrow">DBSP 教学 · Lesson 0004 · 约 12–16 分钟</div>
+<h1>朴素增量与链式法则：从整体定义到基础算子</h1>
+<p class="course-byline">教程制作 · <strong>李金懋</strong>（OceanBase）</p>
+
+<p class="lead">本课从完整定义推导查询的增量算子，并证明复合查询可以按链式法则拆成逐算子增量。链式法则只给出语义分解；效率要靠后续为各算子改写出高效增量实现。</p>
+<p class="cite">
+        依据：
+        <a href="https://ar5iv.labs.arxiv.org/html/2203.16684" rel="noopener" target="_blank">DBSP §3–§4：增量化与 DBSP 算子</a>
+        ·
+        <a href="https://arxiv.org/abs/2203.16684" rel="noopener" target="_blank">arXiv:2203.16684</a>
+</p>
+</header>
+<section>
+<h2>1. 朴素增量：先定义正确的输出</h2>
+<p>对快照查询 <span class="mono">Q</span>，输入是数据库变化流 <span class="mono">ΔDB</span>，目标是输出视图变化流 <span class="mono">ΔV</span>。先把 <span class="mono">Q</span> 变为流算子 <span class="mono">↑Q</span>，其朴素增量定义为：</p>
+<div class="formula">(↑Q)<sup>Δ</sup> = 𝒟 ∘ ↑Q ∘ ℐ</div>
+<div class="pipeline">
+<span class="box" style="background:#ecfdf5">ΔDB</span><span class="arrow">→</span>
+<span class="box i">ℐ</span><span class="arrow">→</span>
+<span class="box" style="background:#eff6ff">数据库快照流</span><span class="arrow">→</span>
+<span class="box q">↑Q</span><span class="arrow">→</span>
+<span class="box" style="background:#eff6ff">视图快照流</span><span class="arrow">→</span>
+<span class="box d">𝒟</span><span class="arrow">→</span>
+<span class="box" style="background:#ecfdf5">ΔV</span>
+</div>
+<ul>
+<li><span class="prim">ℐ</span>：把输入变化累加为数据库快照流。</li>
+<li><span class="prim">↑Q</span>：在每个时刻对该时刻的完整数据库快照执行 <span class="mono">Q</span>。</li>
+<li><span class="prim">𝒟</span>：把相邻视图快照之差作为输出变化。</li>
+</ul>
+<div class="callout good"><strong>它为什么正确？</strong>由定义，<span class="mono">(↑Q)<sup>Δ</sup>(ΔDB)</span> 就是完整视图快照流 <span class="mono">↑Q(ℐ(ΔDB))</span> 的相邻差。因此，它精确规定了任何增量实现应当输出什么。</div>
+<div class="callout warn"><strong>它为什么不能直接执行？</strong><span class="mono">ℐ</span> 会恢复完整数据库快照，<span class="mono">↑Q</span> 仍在完整快照上执行原查询。变化再小，也可能需要重跑全量查询。朴素增量在这里的作用不是提供高效算法，而是<strong>定义高效实现必须产生的结果</strong>。</div>
+</section>
+<section>
+<h2>2. 链式法则：把整体定义拆到基础算子</h2>
+<p>复合查询写作：</p>
+<div class="formula">Q = Q₁ ∘ Q₂
+// 数据流：输入 ──→ Q₂ ──→ Q₁ ──→ 输出</div>
+<div class="pipeline">
+<span class="box" style="background:#ecfdf5">输入</span><span class="arrow">→</span>
+<span class="box q">Q₂</span><span class="arrow">→</span>
+<span class="box q">Q₁</span><span class="arrow">→</span>
+<span class="box" style="background:#ecfdf5">输出</span>
+</div>
+<h3>2.1 不分解时缺少什么</h3>
+<p>直接套朴素定义，只得到整条查询的定义：</p>
+<div class="formula">(↑(Q₁ ∘ Q₂))<sup>Δ</sup>
+= 𝒟 ∘ ↑(Q₁ ∘ Q₂) ∘ ℐ</div>
+<p>这个式子把 <span class="mono">Q₁ ∘ Q₂</span> 当成黑盒：它没有给出“<span class="mono">Q₂</span> 的输出变化如何作为 <span class="mono">Q₁</span> 的输入变化”。因此无法把整体正确性要求分配给两个基础算子，也无法分别替换它们的实现。</p>
+<h3>2.2 从整体定义推导</h3>
+<p>只用两件已知事实：</p>
+<ul>
+<li><span class="mono">↑(Q₁ ∘ Q₂) = ↑Q₁ ∘ ↑Q₂</span>：Lift 保持函数复合。</li>
+<li>对任意快照流 <span class="mono">s</span>，<span class="mono">ℐ(𝒟(s)) = s</span>：先差分再积分会还原该快照流。</li>
+</ul>
+<div class="formula">(↑(Q₁ ∘ Q₂))<sup>Δ</sup>
+= 𝒟 ∘ ↑(Q₁ ∘ Q₂) ∘ ℐ                         // 朴素增量定义
+= 𝒟 ∘ ↑Q₁ ∘ ↑Q₂ ∘ ℐ                           // Lift 保复合
+= 𝒟 ∘ ↑Q₁ ∘ (ℐ ∘ 𝒟) ∘ ↑Q₂ ∘ ℐ                 // 中间快照流先差分再积分，不变
+= (𝒟 ∘ ↑Q₁ ∘ ℐ) ∘ (𝒟 ∘ ↑Q₂ ∘ ℐ)               // 重新结合括号
+= (↑Q₁)<sup>Δ</sup> ∘ (↑Q₂)<sup>Δ</sup>          // 认出两段的朴素增量定义</div>
+<h3>2.3 结论与作用</h3>
+<div class="formula">(↑(Q₁ ∘ Q₂))<sup>Δ</sup>
+= (↑Q₁)<sup>Δ</sup> ∘ (↑Q₂)<sup>Δ</sup></div>
+<p>右边形成明确接口：</p>
+<div class="pipeline">
+<span class="box" style="background:#ecfdf5">ΔDB</span><span class="arrow">→</span>
+<span class="box ok">(↑Q₂)<sup>Δ</sup></span><span class="arrow">→</span>
+<span class="box" style="background:#ecfdf5">中间变化流</span><span class="arrow">→</span>
+<span class="box ok">(↑Q₁)<sup>Δ</sup></span><span class="arrow">→</span>
+<span class="box" style="background:#ecfdf5">ΔV</span>
+</div>
+<div class="callout good"><strong>链式法则解决什么？</strong>把整体输出定义拆到各基础算子，并保证局部增量算子按原顺序连接后仍产生同一整体结果；之后才能逐算子做高效实现。</div>
+<div class="callout warn"><strong>链式法则不解决什么？</strong>它不自动减少计算量，也不消除状态。若每个 <span class="mono">(↑Qᵢ)<sup>Δ</sup></span> 仍按朴素定义执行，管道仍可能慢；真正的效率来自每个基础算子的具体高效实现。</div>
+</section>
+<section>
+<h2>3. 小结</h2>
+<ul>
+<li><span class="tag">(↑Q)<sup>Δ</sup> = 𝒟∘↑Q∘ℐ</span> 定义增量计算应产生的结果：输出应等于完整视图的相邻差。</li>
+<li><span class="tag">整体问题</span>：复合查询的整体定义把内部算子当黑盒，不能分别替换局部实现。</li>
+<li><span class="tag">链式法则</span>：用 Lift 保复合与 <span class="mono">ℐ(𝒟(s))=s</span>，把整体定义拆成逐算子的定义。</li>
+<li><span class="tag">效率来源</span>：各基础算子的高效增量实现，而不是链式分解本身。</li>
+</ul>
+<div class="callout warn"><strong>还差的一步：</strong>链式法则已经把朴素增量拆成逐算子的形式；但如果每个 <span class="mono">(↑Qᵢ)<sup>Δ</sup></span> 仍按 <span class="mono">𝒟∘↑Qᵢ∘ℐ</span> 执行，就仍要先积分得到快照、执行快照算子、再差分输出，计算依然可能很慢。效率要由各个基础算子的具体增量等式来获得。</div>
+</section>
+<section>
+<h2>4. 理解检查</h2>
+<div class="quiz" data-answer="2">
+<div class="q">Q1. 朴素增量 <span class="mono">(↑Q)<sup>Δ</sup> = 𝒟 ∘ ↑Q ∘ ℐ</span> 从右到左做什么？</div>
+<div class="options">
+<button class="opt" data-i="0">先微分输入，再执行查询，再积分</button>
+<button class="opt" data-i="1">只对本批变化直接执行 Q</button>
+<button class="opt" data-i="2">先把变化积成快照，再执行查询，再把视图差分为变化</button>
+<button class="opt" data-i="3">先删除状态，再执行查询</button>
+</div>
+<div class="feedback" data-bad="按数据流读：ΔDB → ℐ → ↑Q → 𝒟 → ΔV。" data-ok="对：先恢复快照，再执行查询，最后对视图做差分。"></div>
+</div>
+<div class="quiz" data-answer="1">
+<div class="q">Q2. 为什么要保留这个直接执行会慢的朴素定义？</div>
+<div class="options">
+<button class="opt" data-i="0">它保证所有查询都不需要状态</button>
+<button class="opt" data-i="1">它规定任何高效增量实现都必须输出的正确结果</button>
+<button class="opt" data-i="2">它已经是所有算子的最高效实现</button>
+<button class="opt" data-i="3">它只适用于 filter</button>
+</div>
+<div class="feedback" data-bad="朴素定义的价值是语义正确性，不是直接执行的性能。" data-ok="对：它定义了高效实现必须产生的结果。"></div>
+</div>
+<div class="quiz" data-answer="0">
+<div class="q">Q3. 链式法则主要解决什么？</div>
+<div class="options">
+<button class="opt" data-i="0">把整条查询的增量定义拆成基础算子的定义，并保证可以按接口连接</button>
+<button class="opt" data-i="1">让每个算子自动不再读取状态</button>
+<button class="opt" data-i="2">直接把所有全量计算变为常数时间</button>
+<button class="opt" data-i="3">允许任意交换 Q₁ 与 Q₂ 的顺序</button>
+</div>
+<div class="feedback" data-bad="链式法则保证的是可组合的语义分解。" data-ok="对：它建立局部实现连接到整体正确性的桥梁。"></div>
+</div>
+<div class="quiz" data-answer="3">
+<div class="q">Q4. 推导中为什么能在 <span class="mono">↑Q₁</span> 和 <span class="mono">↑Q₂</span> 之间插入 <span class="mono">ℐ ∘ 𝒟</span>？</div>
+<div class="options">
+<button class="opt" data-i="0">因为 Q₁ 和 Q₂ 必须处理相同的记录类型</button>
+<button class="opt" data-i="1">因为 SQL 标准要求这样做</button>
+<button class="opt" data-i="2">因为 delay 可以消掉所有状态</button>
+<button class="opt" data-i="3">因为对中间快照流 s 有 ℐ(𝒟(s)) = s，插入后该流不变</button>
+</div>
+<div class="feedback" data-bad="关键是 ℐ 与 𝒟 对快照流的还原关系。" data-ok="对：中间快照流先差分再积分仍是它自己，因此可用来切开管道。"></div>
+</div>
+</section>
+
+<nav>
+<a href="0003-four-primitives.html">← 上一课</a>
+<a href="index.html">课程目录</a>
+<a href="0005-linear-operators.html">下一课 →</a>
+</nav>
+<footer>DBSP IVM 教学文档 · 严格记号中，增量算子作用于变化流；不会把快照与变化混写。 · <a href="index.html">课程目录</a></footer>
+</div>
+<script>
+  document.querySelectorAll('.quiz').forEach(quiz => {
+    const answer = Number(quiz.dataset.answer);
+    const feedback = quiz.querySelector('.feedback');
+    quiz.querySelectorAll('button.opt').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const i = Number(btn.dataset.i);
+        quiz.querySelectorAll('button.opt').forEach(b => {
+          b.disabled = true;
+          if (Number(b.dataset.i) === answer) b.classList.add('correct');
+        });
+        if (i === answer) {
+          btn.classList.add('correct');
+          feedback.textContent = feedback.dataset.ok;
+        } else {
+          btn.classList.add('wrong');
+          feedback.textContent = feedback.dataset.bad;
+        }
+        feedback.classList.add('show');
+      });
+    });
+  });
+
+</script>
+</body>
+</html>

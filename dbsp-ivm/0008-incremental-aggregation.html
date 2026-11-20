@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width,initial-scale=1" name="viewport"/>
+<title>第 8 课 · 增量聚合：线性统计量与结果行构造</title>
+<style>
+:root{--bg:#f4f1eb;--paper:#fffdf8;--ink:#1c1917;--muted:#57534e;--line:#e8e0d4;--accent:#9a3412;--accent-soft:#ffedd5;--teal:#0f766e;--teal-soft:#ccfbf1;--good:#166534;--good-soft:#dcfce7;--bad:#991b1b;--bad-soft:#fee2e2;--purple:#6d28d9;--purple-soft:#ede9fe;--code:#1c1917;--shadow:0 10px 28px rgba(28,25,23,.06)}
+*{box-sizing:border-box}
+body{margin:0;color:var(--ink);font-family:"Iowan Old Style","Palatino Linotype",Palatino,"Songti SC","Noto Serif SC",serif;line-height:1.68;background:radial-gradient(900px 480px at 0 0,#ffedd5 0,transparent 55%),radial-gradient(800px 420px at 100% 10%,#ccfbf155 0,transparent 50%),var(--bg)}
+.wrap{max-width:920px;margin:0 auto;padding:36px 18px 72px}
+.eyebrow,.cite,nav,footer{margin-top:28px;color:var(--muted);font-size:.88rem;font-family:ui-sans-serif,system-ui,sans-serif}
+.eyebrow{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);font-weight:800;font-family:ui-sans-serif,system-ui,sans-serif}
+h1{font-size:clamp(1.75rem,3vw,2.35rem);line-height:1.2;margin:10px 0 12px}
+h2{margin:0 0 11px;font-size:1.25rem}
+h3{margin:20px 0 8px;font-size:1.06rem}
+p{margin:0 0 12px}
+ul,ol{margin:0 0 12px;padding-left:1.3em}
+li{margin:.3em 0}
+a{color:var(--teal)}
+.lead{color:var(--muted);font-size:1.07rem}
+.cite{font-size:.88rem;color:var(--muted)}
+section{background:var(--paper);border:1px solid var(--line);border-radius:18px;padding:22px;margin:18px 0;box-shadow:var(--shadow)}
+.callout{border-left:4px solid var(--teal);padding:12px 14px;border-radius:0 12px 12px 0;margin:14px 0;font-family:ui-sans-serif,system-ui,sans-serif;font-size:.95rem;background:var(--teal-soft)}
+.callout.warn{border-left-color:var(--accent);background:var(--accent-soft)}
+.callout.good{border-left-color:var(--good);background:var(--good-soft)}
+.callout.bad{border-left-color:var(--bad);background:var(--bad-soft)}
+.callout.purple{border-left-color:var(--purple);background:var(--purple-soft)}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.91rem}
+.formula{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--code);color:#fafaf9;padding:15px 17px;border-radius:12px;overflow:auto;margin:12px 0;line-height:1.6;white-space:pre-wrap}
+table{width:100%;margin:10px 0 14px;font-size:.9rem;font-family:ui-sans-serif,system-ui,sans-serif;border-collapse:collapse}
+th,td{border:1px solid var(--line);padding:8px 10px;vertical-align:top}
+th{background:#faf6f0;padding:8px 10px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.card{border:1px solid var(--line);border-radius:12px;padding:13px;background:#fffcf7}
+.card h4{margin:0 0 8px;font:800 .78rem ui-sans-serif,system-ui;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.quiz{border:1px solid var(--line);border-radius:14px;padding:14px;margin:12px 0;background:#fff}
+.q{font:700 .96rem ui-sans-serif,system-ui;margin-bottom:9px}
+.options{display:grid;gap:8px}
+.opt{font:.92rem ui-sans-serif,system-ui;text-align:left;border:1px solid var(--line);background:#fff;border-radius:10px;padding:10px 12px;cursor:pointer}
+.opt:hover{border-color:var(--accent)}
+.opt.correct{background:var(--good-soft);border-color:var(--good)}
+.opt.wrong{background:var(--bad-soft);border-color:var(--bad)}
+.feedback{display:none;margin-top:9px;font:.91rem ui-sans-serif,system-ui}
+.feedback.show{display:block}
+nav{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;margin:24px 0;font-family:ui-sans-serif,system-ui,sans-serif}
+nav a{border:1px solid var(--line);border-radius:12px;background:#fff;padding:10px 14px;text-decoration:none;font-weight:700;color:var(--teal)}
+footer{margin-top:28px;color:var(--muted);font-size:.88rem;font-family:ui-sans-serif,system-ui,sans-serif}
+@media(max-width:740px){.grid{grid-template-columns:1fr}.wrap{padding:28px 14px 56px}section{padding:18px}table{font-size:.84rem}th,td{padding:8px;border:1px solid var(--line)}nav{flex-direction:column}}}
+.formula sub,.formula sup,.mono sub,.mono sup,.math sub,.math sup{font-size:0.74em;line-height:0;position:relative;vertical-align:baseline}
+.formula sup,.mono sup,.math sup{top:-0.52em}
+.formula sub,.mono sub,.math sub{bottom:-0.20em}
+header{margin-bottom:28px}
+
+.course-byline { margin: 0 0 12px; color: var(--accent); font: 1rem/1.6 ui-sans-serif, system-ui, sans-serif; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+<div class="eyebrow">DBSP 教学 · Lesson 0008 · 约 30–35 分钟</div>
+<h1>增量聚合：线性统计量与结果行构造</h1>
+<p class="course-byline">教程制作 · <strong>李金懋</strong>（OceanBase）</p>
+
+<p class="lead">本课用同一组 East 订单，逐层走完分组、SUM/COUNT 与结果行构造，并从单批推导得到对应的增量流电路。</p>
+<p class="cite">依据：DBSP 论文 §7.2（Aggregation）、§7.3（Grouping）与 §7.4（GROUP BY-AGGREGATE）。</p>
+</header>
+
+<section>
+<h2>1. 问题：总和加了 10，为什么输出不是加一行 +10？</h2>
+<p>查询：</p>
+<div class="formula">SELECT region, SUM(amount) AS total
+FROM orders
+GROUP BY region</div>
+<p><strong>注：</strong>本课假设 <span class="mono">amount</span> 不为 NULL（否则「组非空但 SUM 为 NULL」需额外维护非 NULL 计数），且每个批边界的输入快照都是合法 SQL bag——快照中每条记录权重 ≥ 0、删除不超过现有份数，故批边界的组内记录数不为负，<span class="mono">count &gt; 0</span> 才能作为「组是否存在」的信号。此约束只管批边界快照；一批之内的变化流中，删除仍用负权重表示。</p>
+<p>表结构为 <span class="mono">orders(id, region, amount)</span>，本课只跟踪 <span class="mono">East</span> 组：变化前组内有两笔订单 <span class="mono">o1</span>、<span class="mono">o2</span>，本批发生两笔变动：</p>
+<table>
+<thead>
+<tr><th>订单</th><th>本批操作</th><th>对组内总和的影响</th></tr>
+</thead>
+<tbody>
+<tr><td class="mono">o3</td><td>插入，金额 15</td><td class="mono">+15</td></tr>
+<tr><td class="mono">o1</td><td>删除，金额 5</td><td class="mono">−5</td></tr>
+</tbody>
+</table>
+<p>组内总和从 30 变为 40。很多人会想：总和多了 10，输出增量就是 <span class="mono">+(East,10)</span>。先把各层对象摆清楚，再看这为什么错。</p>
+<table>
+<thead>
+<tr><th>状态对象</th><th>本批开始前</th><th>应用本批变化后</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>East 组基表记录</td>
+<td class="mono">{(o1,East,5)↦1,
+(o2,East,25)↦1}</td>
+<td class="mono">{(o2,East,25)↦1,
+(o3,East,15)↦1}</td>
+</tr>
+<tr>
+<td>组内记录数 count</td>
+<td class="mono">2</td>
+<td class="mono">2</td>
+</tr>
+<tr>
+<td>组内总和 sum</td>
+<td class="mono">5+25=30</td>
+<td class="mono">25+15=40</td>
+</tr>
+<tr>
+<td>SQL 结果关系 V</td>
+<td class="mono">{(East,30)↦1}</td>
+<td class="mono">{(East,40)↦1}</td>
+</tr>
+</tbody>
+</table>
+<p>输出增量是新旧两个结果关系之差，按 Z-set 减法逐条记录计算：</p>
+<div class="formula">ΔV
+= V<sub>new</sub> − V<sub>old</sub>             // 输出变化 = 新旧结果关系之差
+= {(East,40)↦1} − {(East,30)↦1}    // 代入上表两列
+= {(East,40)↦+1, (East,30)↦−1}     // Z-set 减法：缺席一侧的权重取负</div>
+<p>直觉写法 <span class="mono">{(East,10)↦1}</span> 错在哪里？下游会把增量加到旧结果上：<span class="mono">{(East,30)↦1} + {(East,10)↦1}</span> 得到的是 <span class="mono">(East,30)</span> 与 <span class="mono">(East,10)</span> 两行，而不是真实新结果 <span class="mono">{(East,40)↦1}</span>。</p>
+<div class="callout bad">
+<strong>两层对象不同：</strong>
+<ul style="margin:8px 0 0;padding-left:1.2em">
+<li><strong>内部统计量</strong> <span class="mono">sum</span> 是数字：30 → 40，变化量 +10。</li>
+<li><strong>SQL 结果关系</strong> 是表：必须 <span class="mono">−(East,30) + (East,40)</span>，撤回旧行、插入新行。</li>
+</ul>
+</div>
+<p>本课主线：按论文把查询拆开，看哪一层可以“直接加”，哪一层必须“新旧结果行之差”。</p>
+</section>
+
+<section>
+<h2>2. 先明确快照算子：三个不同层次</h2>
+<p>要推导一批变化如何传播，先明确完整快照查询究竟做了什么。论文不把 <span class="mono">GROUP BY SUM</span> 当成一个不可分的算子，而是拆成：</p>
+<div class="formula">输入订单 Z-set
+  → ① 按 region 分组
+  → ② 对每组计算 count 与 sum
+  → ③ 按组是否存在，把 (region, sum) 构造成结果行</div>
+<p>这三层处理的对象不同：第①层输出按键索引的子 Z-set，第②层输出内部标量，第③层输出 SQL 结果关系中的记录。继续用第 1 节变化前的 East 快照逐层计算。</p>
+
+<h3>2.1 第①层：按键分组</h3>
+<p>分组键函数 <span class="mono">p</span> 读取订单的 <span class="mono">region</span>。分组算子 <span class="mono">G<sub>p</sub></span> 把每条记录送到对应键的子 Z-set，并保留原权重：</p>
+<div class="formula">X<sub>old</sub> =
+  {(o1,East,5)↦1, (o2,East,25)↦1}
+
+G<sub>p</sub>(X<sub>old</sub>)[East] =
+  {(o1,East,5)↦1, (o2,East,25)↦1}</div>
+<p><span class="mono">G<sub>p</sub>(X)</span> 是 indexed Z-set：每个键对应一个组内子 Z-set；两个 indexed Z-set 相加时，同一键下的子 Z-set 按记录权重相加。</p>
+
+<h3>2.2 第②层：对组内子 Z-set 计算两个标量</h3>
+<p>对组内子 Z-set <span class="mono">s</span>，定义：</p>
+<div class="formula">a<sub>COUNT</sub>(s) = Σ<sub>x</sub> s(x)
+a<sub>SUM</sub>(s)   = Σ<sub>x</sub> amount(x) × s(x)</div>
+<p>这里的 <span class="mono">a<sub>COUNT</sub></span> 统计组内记录数，对应 <span class="mono">COUNT(*)</span>。由于本课已假设 amount 不为 NULL，它也等于参与 SUM 的记录数；允许 NULL 时，两种计数必须区分。</p>
+<p>对 East 桶：</p>
+<div class="formula">a<sub>COUNT</sub> = 1 + 1 = 2
+a<sub>SUM</sub>   = 5×1 + 25×1 = 30</div>
+<p>这一层输出的是内部状态，不是 SQL 结果表。记为：</p>
+<div class="formula">S<sub>old</sub>[East] = (count<sub>old</sub>=2, sum<sub>old</sub>=30)</div>
+<p>为什么 SUM 还要 count？如果某组所有 amount 碰巧加起来是 0，只看 sum=0 分不清“组里没有行”和“组里有行但总和为 0”。普通 <span class="mono">GROUP BY</span> 在组内没有行时，结果表里根本不出现该组；所以要用 count 判断组是否存在。</p>
+
+<h3>2.3 第③层：由内部状态构造结果关系</h3>
+<p>论文用 <span class="mono">makeset</span> 把一个值包装成只含该记录、权重为 1 的 Z-set：</p>
+<div class="formula">makeset(v) = {v ↦ 1}</div>
+<p>每组输出函数还要根据 count 判断该组是否存在：</p>
+<div class="formula">out(g,count,sum) =
+  ∅                       若 count = 0
+  makeset((g,sum))        若 count &gt; 0</div>
+<p>因此旧 East 状态产生：</p>
+<div class="formula">out<sub>old</sub>[East]
+= out(East,2,30)
+= makeset((East,30))
+= {(East,30)↦1}</div>
+<div class="callout good">
+到这里仍是完整快照计算：<strong>订单 → 分组子 Z-set → (count,sum) → 结果行</strong>。接下来只改变这条流水线的输入，逐层计算每一层真正发生的变化。
+</div>
+</section>
+
+<section>
+<h2>3. 增量聚合流水线</h2>
+<p>变化前的三层结果已经算出。现在应用本批输入变化：</p>
+<div class="formula">d = {(o3,East,15)↦1, (o1,East,5)↦−1}</div>
+<p>目标仍是新状态与新结果行（<span class="mono">sum<sub>new</sub></span>、<span class="mono">V<sub>new</sub></span>），但做法不是把新快照 <span class="mono">X<sub>old</sub> + d</span> 重新过一遍三层。若某层保持加法，就有「新输入的层输出 = 旧输出（第 2 节已算）+ 本批变化的层输出」——这层只需处理 <span class="mono">d</span>，把贡献加到旧结果上；不能这样拆的层，才需要比较新旧。下面逐层验证哪层可以只处理 <span class="mono">d</span>。</p>
+
+<h3>3.1 分组层：变化按键进入对应子 Z-set</h3>
+<p>先验证分组层可以只处理 <span class="mono">d</span>。分组不修改记录和权重，只按 <span class="mono">region</span> 选键，因此保持加法：</p>
+<div class="formula">G<sub>p</sub>(X<sub>old</sub> + d)
+= G<sub>p</sub>(X<sub>old</sub>) + G<sub>p</sub>(d)</div>
+<p>等式两侧都是 indexed Z-set，加法按键逐点进行。左侧是新快照的分组结果；右侧把它拆成第 2 节已有的 <span class="mono">G<sub>p</sub>(X<sub>old</sub>)</span> 与只依赖本批的 <span class="mono">G<sub>p</sub>(d)</span>——所以本层只需计算后者。本批两条变化都属于 East：</p>
+<div class="formula">G<sub>p</sub>(d)[East]
+= {(o3,East,15)↦1, (o1,East,5)↦−1}</div>
+<p>未出现在 <span class="mono">d</span> 中的分组不受影响，不需要重新读取。</p>
+
+<h3>3.2 标量层：直接累加 count 与 sum 的变化</h3>
+<p>COUNT 和 SUM 的定义都是加权和。对任意两个组内 Z-set <span class="mono">A</span>、<span class="mono">B</span>，整数加法的分配律给出：</p>
+<div class="formula">a<sub>COUNT</sub>(A+B)
+= a<sub>COUNT</sub>(A) + a<sub>COUNT</sub>(B)
+
+a<sub>SUM</sub>(A+B)
+= a<sub>SUM</sub>(A) + a<sub>SUM</sub>(B)</div>
+<p>因此无需对新的 East 子 Z-set 重新求和，只计算本批变化的贡献：</p>
+<div class="formula">Δcount = (+1) + (−1) = 0
+Δsum   = 15×(+1) + 5×(−1) = 10
+
+count<sub>new</sub> = 2 + 0  = 2
+sum<sub>new</sub>   = 30 + 10 = 40
+
+S<sub>new</sub>[East] = (count=2, sum=40)</div>
+<p>这一步得到的是内部标量变化 <span class="mono">Δsum=10</span>，尚未得到 SQL 结果关系的变化。</p>
+
+<h3>3.3 结果层：用新结果行减旧结果行</h3>
+<p>新旧 count 都大于 0，所以 East 组前后各有一条结果记录：</p>
+<div class="formula">out<sub>old</sub> = makeset((East,30)) = {(East,30)↦1}
+out<sub>new</sub> = makeset((East,40)) = {(East,40)↦1}
+
+ΔV = out<sub>new</sub> − out<sub>old</sub>
+   = −(East,30) + (East,40)</div>
+<p>这里不能把 <span class="mono">makeset</span> 直接用于 <span class="mono">Δsum=10</span>：</p>
+<div class="formula">makeset((East,10)) = {(East,10)↦1}
+
+makeset((East,40)) − makeset((East,30))
+= {(East,40)↦1, (East,30)↦−1}</div>
+<p>两者不是同一个 Z-set，所以 makeset 不保持加法，是非线性的。内部数字可以从 30 加 10 得到 40；结果关系却必须用完整新行替换完整旧行。</p>
+<div class="callout purple">
+同一批变化沿三层传播后，结论自然出现：<strong>分组变化可直接路由，统计量变化可直接累加，结果行变化必须比较新旧状态。</strong>
+</div>
+</section>
+
+<section>
+<h2>4. 从单批推导归纳为增量算子</h2>
+<p>先给第 3 节的三个阶段命名，并约定类型记号：</p>
+<table>
+<thead>
+<tr><th>记号</th><th>含义</th></tr>
+</thead>
+<tbody>
+<tr><td class="mono">ℤ[Order]</td><td>订单 Z-set：订单记录 → 整数权重。</td></tr>
+<tr><td class="mono">ℤ[Order][Region]</td><td>以 region 为键的 indexed Z-set：键 k 处存放该组的订单子 Z-set。</td></tr>
+<tr><td class="mono">State</td><td>「分组键 → (count,sum)」的有限映射，缺失键默认取 (0,0)。</td></tr>
+<tr><td class="mono">Result = (Region,Total)</td><td>结果记录的形状：分组键 + 组内总和。</td></tr>
+<tr><td class="mono">Gp</td><td>分组层：把订单 Z-set 按 region 拆到各键名下。</td></tr>
+<tr><td class="mono">A</td><td>标量层：每组算出 (count,sum) 标量对。</td></tr>
+<tr><td class="mono">emit</td><td>结果层：按 count 判断组是否存在，存在的组经 makeset 拼成结果行。</td></tr>
+<tr><td class="mono">E(S<sub>old</sub>, ΔS)</td><td>新旧比较：由旧 State 与状态变化算出结果关系的变化（下文定义）。</td></tr>
+</tbody>
+</table>
+<p>四个算子的类型为（<span class="mono">X → Y</span> 表示「输入 X、输出 Y」）：</p>
+<div class="formula">G<sub>p</sub> : ℤ[Order] → ℤ[Order][Region]
+A         : ℤ[Order][Region] → State
+emit      : State → ℤ[Result]
+E         : State × State → ℤ[Result]</div>
+<p><span class="mono">E</span> 的第二个 <span class="mono">State</span> 参数表示状态变化，可正可负。<span class="mono">A</span>、<span class="mono">emit</span> 与整条查询 <span class="mono">Q</span> 的定义为：</p>
+<div class="formula">A(g)[k] =
+  (a<sub>COUNT</sub>(g[k]), a<sub>SUM</sub>(g[k]))
+
+emit(S) =
+  Σ<sub>k</sub> out(k, S[k].count, S[k].sum)
+
+Q = emit ∘ A ∘ G<sub>p</sub></div>
+<p><span class="mono">A</span> 的输出是“分组键 → (count,sum)”的有限映射，其加法按键逐点进行。由于 COUNT 与 SUM 都保持加法，<span class="mono">A</span> 也保持加法。<span class="mono">emit</span> 包含组存在性判断、结果值构造和 makeset，不是线性算子。</p>
+<p>整条快照查询为 <span class="mono">Q</span>。高效实现必须产生的结果由朴素增量定义：</p>
+<div class="formula">(↑Q)<sup>Δ</sup> = 𝒟 ∘ ↑Q ∘ ℐ</div>
+<p>论证分三步：先证明分组状态可以只凭变化增量维护（4.1）；再用新旧状态定义输出变化算子 <span class="mono">E</span>（4.2）；最后证明两者组成的高效电路与朴素定义逐时刻相等（4.3）。</p>
+
+<h3>4.1 第一步：增量维护分组状态</h3>
+<p>令 <span class="mono">d</span> 是订单变化流。依次定义：</p>
+<div class="formula">d<sub>k</sub> = ↑G<sub>p</sub>(d)  // 本批变化按键分组
+ΔS  = ↑A(d<sub>k</sub>)     // 各组状态变化 (Δcount,Δsum)
+S   = ℐ(ΔS)          // 状态流：应用本批后的新状态
+S<sub>old</sub> = z⁻¹(S)       // 旧状态：上一时刻的状态</div>
+<p>对任意逻辑时刻 <span class="mono">t</span>：</p>
+<ul>
+<li><span class="mono">d<sub>k</sub>[t]</span> 是本批按键分组后的记录变化；</li>
+<li><span class="mono">ΔS[t][k]</span> 是组 k 的 <span class="mono">(Δcount,Δsum)</span>；</li>
+<li><span class="mono">S[t][k]</span> 是应用本批后的 <span class="mono">(count,sum)</span>（与第 3 节的 <span class="mono">S<sub>new</sub></span> 对应）；</li>
+<li><span class="mono">S<sub>old</sub>[t][k]=S[t−1][k]</span> 是应用本批前的旧状态（与第 3 节的 <span class="mono">S<sub>old</sub></span> 对应）。</li>
+</ul>
+<p>令 <span class="mono">s=ℐ(d)</span> 是完整输入的快照流。因为 <span class="mono">G<sub>p</sub></span> 与 <span class="mono">A</span> 都保持加法，它们与积分可交换，所以增量维护的状态等于对全量快照直接计算的状态：</p>
+<div class="formula">S[t] = A(G<sub>p</sub>(s[t]))
+// S=ℐ(↑A(↑G<sub>p</sub>(d)))，保持加法 ⇒ 与 ℐ 交换</div>
+<p>至此状态半边完成：分组状态只凭变化即可增量维护，且与全量计算的状态一致。剩下的是由状态构造输出变化。</p>
+
+<h3>4.2 第二步：用新旧状态构造输出变化</h3>
+<p><span class="mono">emit</span> 不是线性算子，不能把 <span class="mono">ΔS</span> 直接变成输出变化；但有了 4.1 的旧状态 <span class="mono">S<sub>old</sub></span> 与状态变化 <span class="mono">ΔS</span>，就可以用新旧比较来构造。定义快照算子 <span class="mono">E</span>，它接收旧分组状态 <span class="mono">S<sub>old</sub></span> 与本批状态变化 <span class="mono">ΔS</span>：</p>
+<div class="formula">E(S<sub>old</sub>, ΔS)
+= emit(S<sub>old</sub> + ΔS) − emit(S<sub>old</sub>)
+
+= Σ<sub>k</sub> (
+    out(k, (S<sub>old</sub> + ΔS)[k].count, (S<sub>old</sub> + ΔS)[k].sum)
+    − out(k, S<sub>old</sub>[k].count, S<sub>old</sub>[k].sum)
+  )</div>
+<p>若 <span class="mono">ΔS[k]=(0,0)</span>，该组的新旧两项抵消。因此实现只需遍历 <span class="mono">ΔS</span> 中发生变化的键。第 3 节 East 的计算正是 <span class="mono">E(S<sub>old</sub>[t], ΔS[t])</span> 的一次展开。</p>
+<p>相应的高效流电路是：</p>
+<div class="formula">(↑Q)<sup>Δ</sup>(d) = (↑E)(S<sub>old</sub>, ΔS)
+
+其中：
+d<sub>k</sub> = ↑G<sub>p</sub>(d)
+ΔS  = ↑A(d<sub>k</sub>)
+S<sub>old</sub> = z⁻¹(ℐ(ΔS))</div>
+
+<h3>4.3 第三步：证明与朴素形式相等</h3>
+<p>沿用 4.1 的 <span class="mono">s=ℐ(d)</span>，令 <span class="mono">y=↑Q(s)</span>。约定 <span class="mono">s[−1]=0</span>、<span class="mono">S[−1]=0</span>，因此 <span class="mono">Q(0)=emit(0)=0</span>。对任意逻辑时刻 <span class="mono">t</span>：</p>
+<div class="formula">(𝒟 ∘ ↑Q ∘ ℐ)(d)[t]
+= 𝒟(y)[t]
+  // s=ℐ(d)，y=↑Q(s)
+
+= y[t] − y[t−1]
+  // 𝒟 的定义
+
+= Q(s[t]) − Q(s[t−1])
+  // ↑Q 的定义
+
+= emit(S[t]) − emit(S<sub>old</sub>[t])
+  // Q=emit∘A∘G<sub>p</sub>，4.1：S[t]=A(G<sub>p</sub>(s[t]))
+
+= emit(S<sub>old</sub>[t] + ΔS[t]) − emit(S<sub>old</sub>[t])
+  // S[t]=S<sub>old</sub>[t]+ΔS[t]
+
+= E(S<sub>old</sub>[t], ΔS[t])
+  // E 的定义
+
+= (↑E)(S<sub>old</sub>, ΔS)[t]</div>
+<p>所以高效电路与朴素增量定义同一个流算子。效率来自线性层直接处理变化，以及 <span class="mono">E</span> 只比较受影响组；不是改变输出语义。</p>
+
+<h3>4.4 合并后的实现顺序</h3>
+<p>对每个本批受影响的组 <span class="mono">g</span>：</p>
+<div class="formula">1. 读取旧状态 (count<sub>old</sub>, sum<sub>old</sub>)
+2. 用本批变化计算 Δcount、Δsum，得到新状态
+3. 由新旧状态构造 out<sub>old</sub>、out<sub>new</sub>
+   （count=0 时该侧无输出行）
+4. 发射 ΔV[g] = out<sub>new</sub> − out<sub>old</sub>
+5. 提交新状态</div>
+<p>必须先读旧状态、再算输出、最后提交。若先覆盖状态，就丢失了要撤回的旧结果行 <span class="mono">(g, sum<sub>old</sub>)</span>。</p>
+<div class="grid">
+<div class="card">
+<h4>朴素形式</h4>
+<p><span class="mono">𝒟 ∘ ↑Q ∘ ℐ</span>：恢复完整输入，重跑整条分组聚合，再差分。定义“结果必须是什么”。</p>
+</div>
+<div class="card">
+<h4>高效形式</h4>
+<p><span class="mono">(↑E)(z⁻¹(ℐ(ΔS)), ΔS)</span>：线性层产生状态变化，只对受影响组执行完整的 <span class="mono">out<sub>new</sub>−out<sub>old</sub></span>。</p>
+</div>
+</div>
+</section>
+
+<section>
+<h2>5. 同一公式覆盖组出现与组消失</h2>
+<p>第 3 节是组前后都存在。若 count 穿越 0，仍然只需使用 <span class="mono">out<sub>new</sub>−out<sub>old</sub></span>，不需要增加新的增量规则：</p>
+<table>
+<thead><tr><th>旧 count</th><th>新 count</th><th>输出变化</th><th>含义</th></tr></thead>
+<tbody>
+<tr><td>0</td><td>&gt; 0</td><td class="mono">+(g, sum<sub>new</sub>)</td><td>新组第一次出现，只需插入</td></tr>
+<tr><td>&gt; 0</td><td>0</td><td class="mono">−(g, sum<sub>old</sub>)</td><td>组内最后一行被删光，只需撤回</td></tr>
+<tr><td>&gt; 0</td><td>&gt; 0</td><td class="mono">−(g,sum<sub>old</sub>)+(g,sum<sub>new</sub>)</td><td>组仍在；若 sum 相同则两项抵消</td></tr>
+</tbody>
+</table>
+<p>例如原先没有 West，本批插入 <span class="mono">(w1,West,7)</span>：</p>
+<div class="formula">count: 0 → 1，sum<sub>new</sub>=7
+ΔV = +(West,7)</div>
+<p>若再删除这唯一一行：</p>
+<div class="formula">count: 1 → 0
+ΔV = −(West,7)</div>
+<p>这仍是完整结果构造函数 <span class="mono">out</span> 的新旧之差，不是 SUM 公式之外的新规则。</p>
+</section>
+
+<section>
+<h2>6. 边界：AVG 与 MIN/MAX</h2>
+<ul>
+<li><strong>AVG</strong>：先线性地维护 <span class="mono">(sum, count)</span>，在结果值构造阶段计算 <span class="mono">sum/count</span>，再用 makeset 包装 <span class="mono">(g,avg)</span>。除法与结果行构造不线性，但标量状态仍可只更新变化的组。</li>
+<li><strong>MIN / MAX</strong>：删除当前极值时，一般不能只看本批变化。通用形式是 <span class="mono">(↑a<sub>MIN</sub>)<sup>Δ</sup> = 𝒟 ∘ ↑a<sub>MIN</sub> ∘ ℐ</span>，可能需要完整组内容；工作量可与当前关系大小成正比。有序多重集等加速是物理优化，不是该通用等式自动给出的复杂度。</li>
+</ul>
+<div class="callout warn">
+<strong>边界：</strong>主结论针对合法 bag、聚合列不含 NULL 的 SUM/COUNT。amount 可为 NULL 时需另维护非 NULL 计数；MIN/MAX 的专用索引不是 DBSP 通用增量等式。
+</div>
+</section>
+
+<section>
+<h2>7. 小结</h2>
+<ol>
+<li>分组聚合依次处理分组子 Z-set、内部 <span class="mono">(count,sum)</span> 状态和 SQL 结果行，三者不能混为同一对象。</li>
+<li>沿同一批变化推导可见：<span class="mono">G<sub>p</sub></span>、<span class="mono">a<sub>SUM</sub></span>、<span class="mono">a<sub>COUNT</sub></span> 保持加法，可以直接处理变化。</li>
+<li>完整结果构造层 <span class="mono">emit/out</span> 包含组存在性判断与 makeset，不保持加法；它必须比较新旧标量状态。</li>
+<li>因此 SUM 从 30 到 40 时，内部变化是 +10，结果关系变化是 <span class="mono">−(East,30)+(East,40)</span>。</li>
+</ol>
+<div class="formula">必须能脱稿写出：
+(↑G<sub>p</sub>)<sup>Δ</sup> = ↑G<sub>p</sub>
+(↑a<sub>SUM</sub>)<sup>Δ</sup> = ↑a<sub>SUM</sub>
+
+内部：sum<sub>new</sub> = sum<sub>old</sub> + Δsum
+外部：ΔV[g] = out<sub>new</sub> − out<sub>old</sub>
+     = −(g,sum<sub>old</sub>) + (g,sum<sub>new</sub>)
+       // 当组仍存在且 sum 变化时
+
+高效流电路：
+d<sub>k</sub> = ↑G<sub>p</sub>(d)
+ΔS  = ↑A(d<sub>k</sub>)
+S<sub>old</sub> = z⁻¹(ℐ(ΔS))
+(↑Q)<sup>Δ</sup>(d) = (↑E)(S<sub>old</sub>, ΔS)
+
+E(S<sub>old</sub>, ΔS) = emit(S<sub>old</sub> + ΔS) − emit(S<sub>old</sub>)</div>
+</section>
+
+<section>
+<h2>8. 理解检查</h2>
+<div class="quiz" data-answer="1" data-explain="结果关系中旧行必须撤回，再插入新结果行。">
+<div class="q">East 的 SUM 从 30 变成 40，正确的 SQL 输出增量是？</div>
+<div class="options">
+<button class="opt">+(East,10)</button>
+<button class="opt">−(East,30)+(East,40)</button>
+<button class="opt">+(East,40)</button>
+</div>
+<div class="feedback"></div>
+</div>
+<div class="quiz" data-answer="2" data-explain="SUM 标量层只更新数字；out 比较新旧状态，并在组存在时用 makeset 构造完整结果行。">
+<div class="q">按拆分，哪一层直接导致“撤回旧行、插入新行”？</div>
+<div class="options">
+<button class="opt">分组 G<sub>p</sub></button>
+<button class="opt">a<sub>SUM</sub></button>
+<button class="opt">结果构造 out（其中使用 makeset）</button>
+</div>
+<div class="feedback"></div>
+</div>
+<div class="quiz" data-answer="1" data-explain="组存在性由输入记录数判断，不能只看 sum。">
+<div class="q">为什么维护 SUM 时通常还要维护 count？</div>
+<div class="options">
+<button class="opt">为了给结果排序</button>
+<button class="opt">为了区分组不存在与存在但 sum 恰好为 0</button>
+<button class="opt">因为 sum 不能做减法</button>
+</div>
+<div class="feedback"></div>
+</div>
+<div class="quiz" data-answer="0" data-explain="count 从正变 0，结果表中该组消失，应撤回旧结果行。">
+<div class="q">删除某组最后一条记录时，输出增量是什么？</div>
+<div class="options">
+<button class="opt">−(g, sum<sub>old</sub>)</button>
+<button class="opt">+(g, 0)</button>
+<button class="opt">不输出</button>
+</div>
+<div class="feedback"></div>
+</div>
+</section>
+
+<nav>
+<a href="0007-distinct-delta-state.html">← 上一课</a>
+<a href="index.html">课程目录</a>
+<a href="0009-sql-to-zset-circuit.html">下一课 →</a>
+</nav>
+<footer>DBSP IVM 教学文档 · 严格区分线性统计量状态与非线性结果行构造。 · <a href="index.html">课程目录</a></footer>
+</div>
+<script>
+document.querySelectorAll('.quiz').forEach(q=>{
+  q.querySelectorAll('.opt').forEach((b,i)=>b.addEventListener('click',()=>{
+    if(q.dataset.done)return;
+    q.dataset.done='1';
+    const ok=i===Number(q.dataset.answer);
+    b.classList.add(ok?'correct':'wrong');
+    q.querySelectorAll('.opt').forEach((x,j)=>{
+      x.disabled=true;
+      if(j===Number(q.dataset.answer))x.classList.add('correct');
+    });
+    const f=q.querySelector('.feedback');
+    f.textContent=(ok?'✓ ':'✗ ')+q.dataset.explain;
+    f.classList.add('show');
+  }));
+});
+</script>
+</body>
+</html>

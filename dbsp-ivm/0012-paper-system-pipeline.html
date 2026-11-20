@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN"><head><meta charset="utf-8"/><meta content="width=device-width,initial-scale=1" name="viewport"/><title>第 12 课 · 从 SQL 编译到增量运行时</title><style>
+:root{--bg:#f4f1eb;--paper:#fffdf8;--ink:#1c1917;--muted:#57534e;--line:#e8e0d4;--accent:#9a3412;--accent-soft:#ffedd5;--teal:#0f766e;--teal-soft:#ccfbf1;--good:#166534;--good-soft:#dcfce7;--bad:#991b1b;--bad-soft:#fee2e2;--purple:#6d28d9;--purple-soft:#ede9fe;--code:#1c1917;--shadow:0 10px 28px rgba(28,25,23,.06)}
+*{box-sizing:border-box}
+body{margin:0;color:var(--ink);font-family:"Iowan Old Style","Palatino Linotype",Palatino,"Songti SC","Noto Serif SC",serif;line-height:1.68;background:radial-gradient(900px 480px at 0 0,#ffedd5 0,transparent 55%),radial-gradient(800px 420px at 100% 10%,#ccfbf155 0,transparent 50%),var(--bg)}
+.wrap{max-width:920px;margin:0 auto;padding:36px 18px 72px}
+.eyebrow,.cite,nav,footer{margin-top:28px;color:var(--muted);font-size:.88rem;font-family:ui-sans-serif,system-ui,sans-serif}
+.eyebrow{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);font-weight:800;font-family:ui-sans-serif,system-ui,sans-serif}
+h1{font-size:clamp(1.75rem,3vw,2.35rem);line-height:1.2;margin:10px 0 12px}
+h2{margin:0 0 11px;font-size:1.25rem}
+h3{margin:20px 0 8px;font-size:1.06rem}
+p{margin:0 0 12px}
+ul,ol{margin:0 0 12px;padding-left:1.3em}
+li{margin:.3em 0}
+a{color:var(--teal)}
+.lead{color:var(--muted);font-size:1.07rem}
+.cite{font-size:.88rem;color:var(--muted)}
+section{background:var(--paper);border:1px solid var(--line);border-radius:18px;padding:22px;margin:18px 0;box-shadow:var(--shadow)}
+.callout{border-left:4px solid var(--teal);padding:12px 14px;border-radius:0 12px 12px 0;margin:14px 0;font-family:ui-sans-serif,system-ui,sans-serif;font-size:.95rem;background:var(--teal-soft)}
+.callout.warn{border-left-color:var(--accent);background:var(--accent-soft)}
+.callout.good{border-left-color:var(--good);background:var(--good-soft)}
+.callout.bad{border-left-color:var(--bad);background:var(--bad-soft)}
+.callout.purple{border-left-color:var(--purple);background:var(--purple-soft)}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.91rem}
+.formula{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--code);color:#fafaf9;padding:15px 17px;border-radius:12px;overflow:auto;margin:12px 0;line-height:1.6;white-space:pre-wrap}
+.tag{display:inline-block;background:#fff;border:1px solid var(--line);border-radius:999px;padding:2px 8px;color:var(--muted);font-size:12px;font-family:ui-sans-serif,system-ui,sans-serif}
+table{width:100%;margin:10px 0 14px;font-size:.9rem;font-family:ui-sans-serif,system-ui,sans-serif;border-collapse:collapse}
+th,td{border:1px solid var(--line);padding:8px 10px;vertical-align:top}
+th{background:#faf6f0;padding:8px 10px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.card{border:1px solid var(--line);border-radius:12px;padding:13px;background:#fffcf7}
+.card h4{margin:0 0 8px;font:800 .78rem ui-sans-serif,system-ui;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.quiz{border:1px solid var(--line);border-radius:14px;padding:14px;margin:12px 0;background:#fff}
+.q{font:700 .96rem ui-sans-serif,system-ui;margin-bottom:9px}
+.options{display:grid;gap:8px}
+.opt{font:.92rem ui-sans-serif,system-ui;text-align:left;border:1px solid var(--line);background:#fff;border-radius:10px;padding:10px 12px;cursor:pointer}
+.opt:hover{border-color:var(--accent)}
+.opt.correct{background:var(--good-soft);border-color:var(--good)}
+.opt.wrong{background:var(--bad-soft);border-color:var(--bad)}
+.feedback{display:none;margin-top:9px;font:.91rem ui-sans-serif,system-ui}
+.feedback.show{display:block}
+.lab{border:2px solid var(--accent);border-radius:16px;padding:16px;background:linear-gradient(180deg,#fff7ed,#fff)}
+button.run{border:0;border-radius:10px;padding:10px 14px;background:var(--accent);color:white;font:700 .92rem ui-sans-serif,system-ui;cursor:pointer}
+.labout{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre-wrap;background:#1c1917;color:#fafaf9;border-radius:12px;padding:13px;min-height:130px;margin-top:10px}
+.nav{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;margin:24px 0;font-family:ui-sans-serif,system-ui,sans-serif}
+nav a{border:1px solid var(--line);border-radius:12px;background:#fff;padding:10px 14px;text-decoration:none;font-weight:700;color:var(--teal)}
+footer{margin-top:28px;color:var(--muted);font-size:.88rem;font-family:ui-sans-serif,system-ui,sans-serif}
+@media(max-width:740px){.grid{grid-template-columns:1fr}.wrap{padding:28px 14px 56px}section{padding:18px}table{font-size:.84rem}th,td{padding:8px;border:1px solid var(--line)}.nav{flex-direction:column}}}
+/* Mathematical subscripts/superscripts: keep indices attached to their base symbol. */
+  .formula sub, .formula sup, .mono sub, .mono sup, .math sub, .math sup{font-size:0.74em;line-height:0;position:relative;vertical-align:baseline}
+.formula sup, .mono sup, .math sup{top:-0.52em}
+.formula sub, .mono sub, .math sub{bottom:-0.20em}
+header{margin-bottom:28px}
+
+.course-byline { margin: 0 0 12px; color: var(--accent); font: 1rem/1.6 ui-sans-serif, system-ui, sans-serif; }
+</style></head><body><div class="wrap"><header><div class="eyebrow">DBSP 教学 · Lesson 0012 · 约 25–30 分钟</div><h1>从 SQL 编译到增量运行时：完整系统管线</h1>
+<p class="course-byline">教程制作 · <strong>李金懋</strong>（OceanBase）</p>
+<p class="lead">本课把 Z-set 电路、自动增量化、状态维护和运行时执行放进同一张系统图，并总结论文原型的实现边界。</p><p class="cite">依据：DBSP 论文关于线性、双线性、非线性算子以及递归电路的增量化定义与定理。</p></header>
+<section><h2>1. 把数学电路放回编译器和运行时</h2><p>下面把增量公式放入编译器、运行时和状态存储的完整系统路径。概念层的整体路径：</p><div class="formula">SQL
+ → 解析、类型检查与关系代数
+ → Z-set/DBSP 普通电路
+ → 增量化与优化
+ → 可执行数据流程序
+ → 运行时接收输入批次、维护状态、输出 delta</div><div class="callout warn"><strong>范围声明：</strong>这里描述 DBSP 论文原型和概念层系统结构，不声称等同于 2026 年 Feldera 仓库的当前目录、接口或部署架构。查看现行实现时应以对应版本的官方代码和文档为准。</div></section>
+<section><h2>2. 编译阶段一：SQL 先变成有类型的关系计划</h2><p>SQL 文本包含名称解析、类型、NULL、bag/set 语义等细节，不能直接拿字符串做代数变换。论文系统路线中，SQL 前端借助关系查询编译基础设施完成解析和优化，再交给 DBSP 编译层。</p><div class="formula">输入：
+CREATE VIEW v AS
+SELECT region, SUM(amount)
+FROM orders
+WHERE amount &gt;= 20
+GROUP BY region;
+
+关系计划（简化表示）：
+Aggregate[group=region, sum(amount)]
+  Project[region, amount]
+    Filter[amount&gt;=20]
+      Scan[orders]</div><p>这一阶段的责任是确认列、类型和 SQL 语义，并做合法的关系优化；它还没有决定每一批 delta 如何执行。</p></section>
+<section><h2>3. 编译阶段二：关系算子翻译成 Z-set 电路</h2><table><tr><th>关系/SQL 节点</th><th>Z-set 电路节点</th><th>增量性质</th></tr><tr><td>WHERE / selection</td><td>filter</td><td>线性，严格为 <span class="mono">(↑O)<sup>Δ</sup>=↑O</span></td></tr><tr><td>projection / expression</td><td>map</td><td>线性</td></tr><tr><td>UNION ALL</td><td>Z-set 加法</td><td>线性</td></tr><tr><td>JOIN</td><td>双线性 join</td><td>三项 delta</td></tr><tr><td>DISTINCT</td><td>阈值/计数算子</td><td>需要 multiplicity 状态</td></tr><tr><td>GROUP BY</td><td>分组聚合算子</td><td>需要组状态和输出行替换</td></tr><tr><td>递归</td><td>带 delay 的反馈电路</td><td>frontier/不动点</td></tr></table><p>翻译结果是普通快照函数 Q 的电路表示。每条边都有记录类型，每个节点都有明确的 Z-set 语义。</p></section>
+<section><h2>4. 编译阶段三：统一增量化，而不是逐 SQL 模板手写触发器</h2><p>编译器从统一定义开始：</p><div class="formula">完整论文记号：(↑Q)<sup>Δ</sup> = 𝒟 ∘ ↑Q ∘ ℐ
+
+Q      是快照查询
+↑Q     是 lifted 流算子
+(↑Q)<sup>Δ</sup> 是流算子 ↑Q 的增量算子</div><p>再使用链式法则把增量化推入电路，按节点性质替换：</p><div class="formula">线性节点：    (↑O)<sup>Δ</sup> = ↑O
+双线性 join： ΔL⋈R<sub>old</sub> + L<sub>old</sub>⋈ΔR + ΔL⋈ΔR
+Distinct：     维护旧计数，比较新旧存在性
+Aggregation：  更新组状态，撤回旧结果并插入新结果
+Feedback：     增量化递归体，传播 frontier</div><div class="callout good">关键工程价值不是“系统内置几条特殊 delta SQL”，而是普通电路先有统一语义，再由可组合规则系统地得到增量电路。</div></section>
+<section><h2>5. Algorithm 4.8：论文给出的五步机械流程</h2><ol><li>按论文 Table 1 把关系查询 <span class="mono">Q</span> 翻译为 Z-set 电路。</li><li>反复应用 distinct consolidation 等等价变换，直到不能继续。</li><li>把整条快照电路 lift 到流上，得到 <span class="mono">↑Q</span>。</li><li>外包积分与微分，得到语义正确但可能低效的 <span class="mono">(↑Q)<sup>Δ</sup>=𝒟∘↑Q∘ℐ</span>。</li><li>利用 chain rule 及各类增量恒等式，递归把 <span class="mono">Δ</span> 推入内部节点并化简。</li></ol><div class="callout good">这五步把“正确性基线”和“性能优化”分开：第 4 步先保证结果正确，第 5 步再消去不必要的全量恢复与重算。</div></section>
+<section><h2>6. 编译阶段四：优化和生成可执行程序</h2><p>逻辑正确的增量电路仍可能包含冗余状态或算子。编译阶段可继续做保持语义的优化，例如消除可证明冗余的 distinct、融合线性算子、选择 join 的索引和物理布局。</p><div class="formula">增量逻辑电路
+ → 电路优化
+ → 物理算子与状态布局
+ → 生成/构造 Rust 数据流程序
+ → 编译为运行时可执行代码</div><p>论文和早期系统资料常用“生成 Rust、使用 DBSP runtime”描述后端。这里应把它理解为一条论文系统路线，而不是承诺当前代码仍使用完全相同的模块名和生成边界。</p></section>
+<section><h2>7. 运行阶段：每一批数据实际发生什么？</h2><table><tr><th>顺序</th><th>运行时动作</th><th>对应概念</th></tr><tr><td>1</td><td>输入适配层把 INSERT/DELETE/UPDATE 编码成 Z-set delta</td><td>Z-set 变化编码</td></tr><tr><td>2</td><td>线性节点直接转换本批记录</td><td>线性增量算子</td></tr><tr><td>3</td><td>join 读取旧状态（物理实现可通过索引访问）并计算三项贡献</td><td>双线性 join</td></tr><tr><td>4</td><td>distinct、aggregation 读取旧状态并产生输出变化</td><td>状态化非线性算子</td></tr><tr><td>5</td><td>递归子图反复推进 frontier 直到稳定</td><td>递归反馈与 frontier</td></tr><tr><td>6</td><td>提交本批新状态，把输出 delta 交给下游</td><td>批次状态提交</td></tr></table><div class="callout">一个事务/批次的原子边界很重要：算 delta 时要明确使用 old 状态，计算完成后再让 new 状态成为下一批的 old 状态。</div></section>
+<section><h2>8. 编译器、运行时、状态存储各自负责什么？</h2><div class="grid"><div class="card"><h4>SQL/DBSP 编译器</h4><p>守住查询语义；构造并增量化电路；进行合法优化；决定需要哪些状态和索引。</p></div><div class="card"><h4>执行运行时</h4><p>调度算子、传递批次、执行并行计算、推进递归轮次，并产出变化流。</p></div><div class="card"><h4>状态与索引</h4><p>保存 join 两侧历史、distinct 计数、聚合组状态、递归已知集合等。</p></div><div class="card"><h4>输入/输出适配</h4><p>把外部变更转成 Z-set delta，把结果 delta 送往物化视图、消息系统或其他消费者。</p></div></div><p>DBSP 理论主要规定电路和增量化语义；事务一致性、恢复、资源管理和部署接口仍需要系统工程设计。</p></section>
+<section><h2>9. 正确性怎样分层验证？</h2><ol><li><strong>算子级：</strong>对每个节点比较“增量执行后状态”与“在新快照上全量执行”。</li><li><strong>电路级：</strong>累计 <span class="mono">(↑Q)<sup>Δ</sup></span> 输出，比较 <span class="mono">Q(ℐ(d))</span>。</li><li><strong>SQL 级：</strong>使用包含 NULL、重复、删除、聚合和边界条件的查询测试。</li><li><strong>系统级：</strong>验证批次提交、故障恢复和输出一致性不会破坏代数假设。</li></ol><div class="formula">核心测试 oracle：
+ℐ((↑Q)<sup>Δ</sup>(d)) = ↑Q(ℐ(d))</div><p>左边累计增量查询的输出；右边在每个完整快照上运行原查询。两边相等就是最直接的端到端正确性标准。</p></section>
+<section><h2>10. 2023 论文原型明确报告了什么？</h2><ul><li>以 Rust 实现 DBSP library 与 data-parallel multicore runtime，并提供电路构造 API。</li><li>运行时包含通用 integration、differentiation、delay 与 nested operators；算子状态可在需要时 spill。</li><li>论文原型提供 Kafka/CSV 输入输出适配。</li><li>SQL-to-DBSP 编译器建立在 Apache Calcite 上；论文报告通过约 700 万条 SQL Logic Tests。</li><li>核心形式化另有约 5K 行 Lean 证明，用于验证关键代数性质。</li></ul><p>以上各项为 PVLDB 2023 论文 §8 的报告；arXiv 预印本（2203.16684）的 §8 更短，仅报告 Rust 原型库，SQL 编译器与 Lean 形式化是 PVLDB 版新增的。PVLDB PDF：<a href="https://www.vldb.org/pvldb/vol16/p1601-budiu.pdf" rel="noopener" target="_blank">https://www.vldb.org/pvldb/vol16/p1601-budiu.pdf</a>。</p><div class="callout warn"><strong>版本声明：</strong>这些是 2023 PVLDB 论文对原型的报告，不代表 2026 年 Feldera 仓库目录、组件边界或测试数字保持不变。</div></section>
+<section><h2>11. 时间模型与系统边界</h2><p>DBSP 基础模型中的外层时间是线性化事务的同步、全序逻辑时间，而不是 wall clock。递归通过 nested streams 增加内部迭代维度，但外层事务仍按顺序处理。</p><div class="callout purple">因此，乱序事件、多输入 watermark/progress、部分序时间 lattice 等问题不能仅凭这些公式自动解决；它们需要输入层排序、协调协议或更丰富的时间模型。DBSP 的简化换来的是更直接的统一增量化代数。</div><p class="cite">该边界同时对照 DBSP 论文与 Murat Demirbas 的 DBSP 阅读笔记；博客把它与 Differential Dataflow 的部分序时间/progress 机制进行了对比。</p></section>
+<section><h2>12. 与真实系统的对照</h2>
+<h3>A. 论文 §9 的位置：与 DD / DBToaster 的关系</h3>
+<p>论文相关工作把 DBSP 放在两条已有线索之间。</p>
+<p><strong>Differential Dataflow (DD)。</strong>论文明确说 DBSP 的所有算子都基于 DD 的算子。DD 的计算模型更一般、更强：它允许流中过去的值被修订，时间戳可以是偏序。DBSP 刻意把外层时间限制为全序的线性时间，从而简化进度（progress）问题。非嵌套流上的 DBSP 可看作 Kahn network 的简化实例。</p>
+<p><strong>传统 IVM / DBToaster 一脉。</strong>传统增量视图维护沿「把 delta 沿代数表达式传播」的路线发展：</p>
+<div class="formula">Q(R + ΔR) = Q(R) + ΔQ(R, ΔR)</div>
+<p>该路线最终结晶于 Koch 等人的工作（论文引文 [22]）。论文的自评是：DBSP 的增量化更模块化、粒度更细——它处理的是<strong>更新流</strong>而非单次 delta，并且能覆盖递归与非单调查询。</p>
+<h3>B. 与 OceanBase 物化视图的对照</h3>
+<p>OceanBase 支持物化视图（MV）。刷新方式有 FAST（增量刷新）、COMPLETE（全量刷新）、FORCE；刷新时机有 ON COMMIT / ON DEMAND。FAST 刷新依赖基表的物化视图日志（mlog）记录变化行的 old/new。增量刷新规则按查询形态在内核中工程化实现；不支持的查询形态回退为全量刷新。</p>
+<p>用本课程已建立的概念对照：</p>
+<ol>
+<li><strong>变化的统一建模。</strong>mlog 的 old/new 行对应 Z-set 的负/正权重。DBSP 把「数据」和「变化」统一为同一类对象，是整个框架的起点（第 0002 课）。</li>
+<li><strong>手工规则 vs 机械推导。</strong>OceanBase 按算子类别工程化增量规则；DBSP 由 Algorithm 4.8 对任意查询机械生成增量电路，并有正确性定理 <span class="mono">ℐ((↑Q)<sup>Δ</sup>(d)) = ↑Q(ℐ(d))</span>。</li>
+<li><strong>状态解释限制。</strong>distinct 需要旧权重 <span class="mono">H</span>（第 0007 课），join 需要两侧旧状态（第 0006 课）——增量算子的状态需求解释了为什么各数据库的 FAST 刷新都对查询形态有限制。</li>
+<li><strong>边界。</strong>递归与非单调查询的增量化超出传统物化视图的常见范围，是 DBSP 的额外覆盖。</li>
+</ol>
+<div class="callout warn"><strong>范围声明：</strong>OceanBase MV 的具体算子支持矩阵与语法随版本变化，以官方文档为准；本节目的为概念对照，不是 OB 功能手册。</div>
+</section>
+<section><h2>13. 核心概念总结</h2><ol><li>为什么变化和快照都用 Z-set 表示，以及负权重如何表达删除。</li><li><span class="mono">↑、z⁻¹、ℐ、𝒟</span> 各自处理什么。</li><li><span class="mono">(↑Q)<sup>Δ</sup>=𝒟∘↑Q∘ℐ</span> 的语义和链式法则的效率意义。</li><li>线性、双线性 join、distinct、aggregation 的增量推导。</li><li>一条 SQL 如何翻译为 Z-set 电路，并逐层处理输入变化。</li><li>递归为什么是反馈不动点，以及 frontier 为什么能避免重复工作。</li><li>编译器与运行时如何把这些代数规则变成持续执行的系统。</li></ol><div class="callout purple"><strong>核心理论与系统路径已经形成闭环。</strong>可用以下方式检验理解：选一条含 join、distinct、aggregation 的 SQL，在白板上手推两批插入/删除并用全量重算复核。</div><p class="cite">阅读入口：<a href="https://www.vldb.org/pvldb/vol16/p1601-budiu.pdf" rel="noopener" target="_blank">DBSP PVLDB 2023 论文</a> · <a href="https://arxiv.org/abs/2203.16684" rel="noopener" target="_blank">arXiv 完整版</a> · <a href="https://link.springer.com/article/10.1007/s00778-025-00922-y" rel="noopener" target="_blank">VLDB Journal 2025 扩展版</a> · <a href="http://muratbuffalo.blogspot.com/2024/11/dbsp-automatic-incremental-view.html" rel="noopener" target="_blank">Murat Demirbas 阅读笔记</a> · <a href="https://github.com/feldera/feldera" rel="noopener" target="_blank">Feldera 项目</a></p></section>
+<section><h2>14. 理解检查</h2><div class="quiz" data-answer="0" data-explain="增量化作用于有精确定义的电路，而不是未经解析的字符串。"><div class="q">SQL 文本为什么不直接进入增量公式？</div><div class="options"><button class="opt">因为必须先完成解析、类型和关系语义翻译，形成有明确算子的电路</button><button class="opt">因为 SQL 不能表示 filter</button><button class="opt">因为增量系统不支持 SQL</button></div><div class="feedback"></div></div><div class="quiz" data-answer="1" data-explain="逻辑增量规则揭示状态依赖，物理规划决定具体布局和索引。"><div class="q">哪个阶段决定 distinct 计数、join 索引、聚合组状态等需求？</div><div class="options"><button class="opt">只由输出适配器决定</button><button class="opt">电路翻译、增量化和物理规划共同确定</button><button class="opt">用户每批手工指定</button></div><div class="feedback"></div></div><div class="quiz" data-answer="1" data-explain="两条语义路径相等是增量化正确性的核心。"><div class="q">端到端正确性最核心的比较是什么？</div><div class="options"><button class="opt">增量程序速度必须恒定</button><button class="opt">累计增量输出应等于在累计输入快照上执行原查询</button><button class="opt">Rust 行数必须少于 SQL 行数</button></div><div class="feedback"></div></div><div class="quiz" data-answer="0" data-explain="答案应区分论文原型与可能变化的当前工程结构。"><div class="q">关于 Feldera 工程结构，哪种范围声明准确？</div><div class="options"><button class="opt">描述论文原型和概念模型；当前实现应查对应版本的官方代码与文档</button><button class="opt">保证 2026 年目录完全相同</button><button class="opt">不涉及任何系统实现</button></div><div class="feedback"></div></div></section>
+<nav>
+<a href="0011-recursion-cycle-rule.html">← 上一课</a>
+<a href="index.html">课程目录</a>
+<a href="index.html">课程目录 →</a>
+</nav>
+<footer>DBSP IVM 交互教学文档 · 严格记号中，增量算子作用于变化流；不会把快照与变化混写。 · <a href="index.html">课程目录</a></footer></div><script>
+document.querySelectorAll('.quiz').forEach(q=>{q.querySelectorAll('.opt').forEach((b,i)=>b.addEventListener('click',()=>{if(q.dataset.done)return;q.dataset.done='1';const ok=i===Number(q.dataset.answer);b.classList.add(ok?'correct':'wrong');q.querySelectorAll('.opt').forEach((x,j)=>{x.disabled=true;if(j===Number(q.dataset.answer))x.classList.add('correct')});const f=q.querySelector('.feedback');f.textContent=(ok?'✓ ':'✗ ')+q.dataset.explain;f.classList.add('show')}))});
+</script></body></html>

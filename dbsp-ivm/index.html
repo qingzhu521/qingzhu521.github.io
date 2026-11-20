@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"/><meta content="width=device-width,initial-scale=1" name="viewport"/><title>DBSP IVM · 12 课教学目录</title><style>
+
+:root{--bg:#f4f1eb;--paper:#fffdf8;--ink:#1c1917;--muted:#57534e;--line:#e8e0d4;--accent:#9a3412;--accent-soft:#ffedd5;--teal:#0f766e;--teal-soft:#ccfbf1;--good:#166534;--good-soft:#dcfce7;--bad:#991b1b;--bad-soft:#fee2e2;--purple:#6d28d9;--purple-soft:#ede9fe;--code:#1c1917;--shadow:0 10px 28px rgba(28,25,23,.06)}
+*{box-sizing:border-box}
+body{margin:0;color:var(--ink);font-family:"Iowan Old Style","Palatino Linotype",Palatino,"Songti SC","Noto Serif SC",serif;background:radial-gradient(900px 480px at 0 0,var(--accent-soft) 0,transparent 55%),radial-gradient(800px 420px at 100% 10%,#ccfbf155 0,transparent 50%),var(--bg);line-height:1.68}
+main{max-width:920px;margin:auto;padding:36px 18px 72px}
+.eyebrow{font-family:ui-sans-serif,system-ui,sans-serif;font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+h1{font-size:clamp(2rem,5vw,3.4rem);line-height:1.08;margin:12px 0}
+.lead{max-width:720px;color:var(--muted);font-size:1.07rem;margin-bottom:30px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:13px}
+.card{display:flex;gap:15px;align-items:flex-start;text-decoration:none;color:inherit;background:var(--paper);border:1px solid var(--line);border-radius:17px;padding:18px;box-shadow:0 10px 28px rgba(28,25,23,.055);transition:.15s transform,.15s border-color}
+.card:hover{transform:translateY(-2px);border-color:var(--accent)}
+.num{flex:0 0 42px;height:42px;display:grid;place-items:center;border-radius:12px;background:var(--accent-soft);color:var(--accent);font:900 .88rem ui-sans-serif,system-ui}
+h2{font-size:1.06rem;margin:0 0 4px}
+p{margin:0;color:var(--muted);font-size:.93rem}
+.done{margin:28px 0 0;border-left:4px solid var(--teal);background:var(--teal-soft);padding:13px 15px;border-radius:0 12px 12px 0;font:.94rem ui-sans-serif,system-ui}
+footer{margin-top:28px;color:var(--muted);font-size:.88rem;font-family:ui-sans-serif,system-ui,sans-serif}
+@media(max-width:700px){.grid{grid-template-columns:1fr}main{padding:30px 13px 55px}}
+
+
+.course-byline { margin: 0 0 12px; color: var(--accent); font: 1rem/1.6 ui-sans-serif, system-ui, sans-serif; }
+</style></head><body><main><div class="eyebrow">DBSP · Incremental View Maintenance</div><h1>从变化流到增量运行时</h1>
+<p class="course-byline">教程制作 · <strong>李金懋</strong>（OceanBase）</p>
+<p class="lead">12 课循序渐进：先建立 Z-set 与四原语，再手推线性、join、distinct、聚合，最后走通 SQL 电路、递归和系统管线。</p><div class="grid"><a class="card" href="0001-snapshot-vs-change-stream.html"><span class="num">01</span><div><h2>快照与变化流</h2><p>先区分完整状态与每批变化，建立 IVM 的问题直觉。</p></div></a><a class="card" href="0002-why-zsets.html"><span class="num">02</span><div><h2>为什么需要 Z-set</h2><p>用整数权重统一快照、插入、删除和 UPDATE。</p></div></a><a class="card" href="0003-four-primitives.html"><span class="num">03</span><div><h2>DBSP 四个核心原语</h2><p>理解 lift、delay、integration 和 differentiation。</p></div></a><a class="card" href="0004-qdelta-chain-rule.html"><span class="num">04</span><div><h2>查询增量算子与链式法则</h2><p>从语义定义到复合查询的局部增量化。</p></div></a><a class="card" href="0005-linear-operators.html"><span class="num">05</span><div><h2>线性算子</h2><p>逐行推导为什么线性算子可以直接处理变化。</p></div></a><a class="card" href="0006-join-bilinear-delta.html"><span class="num">06</span><div><h2>Join 三项增量</h2><p>从双线性展开新×旧、旧×新和新×新。</p></div></a><a class="card" href="0007-distinct-delta-state.html"><span class="num">07</span><div><h2>Distinct 状态</h2><p>维护 multiplicity，只在存在性边界输出。</p></div></a><a class="card" href="0008-incremental-aggregation.html"><span class="num">08</span><div><h2>增量聚合</h2><p>区分内部状态变化与 SQL 输出行变化。</p></div></a><a class="card" href="0009-sql-to-zset-circuit.html"><span class="num">09</span><div><h2>SQL 到 Z-set 电路</h2><p>翻译 WHERE / PROJECT / GROUP BY，并对照论文 Table 1 的集合语义约定。</p></div></a><a class="card" href="0010-end-to-end-incrementalization.html"><span class="num">10</span><div><h2>端到端增量化</h2><p>走通 Algorithm 4.8、§4.4 电路演化与 §4.5 复杂度对照。</p></div></a><a class="card" href="0011-recursion-cycle-rule.html"><span class="num">11</span><div><h2>递归、δ₀/∫ 与 Cycle Rule</h2><p>入口出口算子、反馈 delay、semi-naïve 与 nested streams。</p></div></a><a class="card" href="0012-paper-system-pipeline.html"><span class="num">12</span><div><h2>系统管线与总收口</h2><p>编译运行时管线，并对照 DD、DBToaster 与 OceanBase MV。</p></div></a></div><footer>DBSP IVM 教学文档 · 所有课程均为自包含 HTML，可直接在浏览器中打开。 · <a href="../index.html">返回博客首页</a></footer></main></body></html>
