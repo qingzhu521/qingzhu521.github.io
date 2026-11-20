@@ -17,8 +17,15 @@ tags: [differential-dataflow, 增量计算, 递归, distinct]
 .post-content .ic-scroll { overflow-x: auto; }
 .post-content .ic-figure svg { display: block; width: 100%; min-width: 620px; height: auto; }
 .post-content .ic-figure figcaption { margin-top: 12px; color: #57534e; font-size: .875rem; }
+.ic-graph-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.ic-graph-panel { padding: 10px; border: 1px solid #e8e0d4; border-radius: 8px; background: #fff; }
+.ic-graph-panel p { margin: 0; text-align: center; font-size: .9375rem; font-weight: 600; }
+.post-content .ic-graph-panel svg { min-width: 0; max-width: 280px; margin: 0 auto; }
 .post-content .ic-formula { padding: 16px 20px; border-left: 4px solid #0f766e; background: #f6f1e7; margin: 24px 0; }
 .post-content .ic-formula p { margin: 0; }
+@media (max-width: 540px) {
+  .ic-graph-pair { grid-template-columns: 1fr; }
+}
 @media (max-width: 600px) {
   .post-title { font-size: 1.85rem; }
   .post-content table { display: block; overflow-x: auto; }
@@ -36,14 +43,42 @@ tags: [differential-dataflow, 增量计算, 递归, distinct]
 
 ### 1.1 卖掉直接持股以后，甲还在名单里吗？
 
-P 直接持有甲、乙两家公司的股份。甲和乙也互相持股。下面每个箭头就是持股表里的一行。
+P 直接持有甲、乙两家公司的股份。甲和乙也互相持股。我们要列出从 P 出发，沿持股关系能找到的所有公司。每家公司只列一次。起初名单上有甲和乙。
 
-```text
-P → 甲      P → 乙
-甲 → 乙     乙 → 甲
-```
+现在 P 卖掉了直接持有的全部甲公司股份。请从第二张图里的 P 出发，顺着箭头走。你会从名单里划掉谁？
 
-我们要列出从 P 出发，沿持股关系能找到的所有公司。每家公司只列一次。起初名单上有甲和乙。现在 P 卖掉了直接持有的全部甲公司股份，持股表删去 `P→甲`。你会从名单里划掉谁？
+<figure class="ic-figure" id="shareholding-graph">
+<div class="ic-graph-pair">
+{% for version in (0..1) %}
+  <div class="ic-graph-panel">
+    <p>版本 {{ version }} · {% if version == 0 %}卖出前{% else %}卖出后{% endif %}</p>
+    <svg viewBox="0 0 280 165" role="img" aria-labelledby="holding-title-{{ version }} holding-desc-{{ version }}">
+      <title id="holding-title-{{ version }}">版本 {{ version }} 的持股图</title>
+      <desc id="holding-desc-{{ version }}">{% if version == 0 %}P 分别指向甲和乙，甲与乙互相指向对方。{% else %}P 只指向乙，甲与乙仍互相指向对方。{% endif %}</desc>
+      <defs>
+        <marker id="holding-arrow-{{ version }}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#57534e"/></marker>
+        {% if version == 0 %}<marker id="holding-sold-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#9a3412"/></marker>{% endif %}
+      </defs>
+      <g fill="none" stroke-width="2.5">
+        {% if version == 0 %}<path d="M126 50 L70 114" stroke="#9a3412" stroke-dasharray="6 4" marker-end="url(#holding-sold-arrow)"/>{% endif %}
+        <g stroke="#57534e" marker-end="url(#holding-arrow-{{ version }})">
+          <path d="M154 50 L210 114"/>
+          <path d="M76 124 H203"/>
+          <path d="M204 140 H77"/>
+        </g>
+      </g>
+      <g stroke="#a8a29e" fill="#fffdf8" stroke-width="1.5">
+        <circle cx="140" cy="34" r="19"/><circle cx="56" cy="132" r="19"/><circle cx="224" cy="132" r="19"/>
+      </g>
+      <g fill="#1c1917" text-anchor="middle" font-size="18" font-family="inherit">
+        <text x="140" y="40">P</text><text x="56" y="138">甲</text><text x="224" y="138">乙</text>
+      </g>
+    </svg>
+  </div>
+{% endfor %}
+</div>
+<figcaption>箭头从股东指向被持股的公司。虚线是这次卖出的直接持股。</figcaption>
+</figure>
 
 顺着剩下的边走，P 仍持有乙，乙仍持有甲。名单一行也不用改。可我在循环里的去重算子 `distinct` 后面记了一份日志，看到它先撤回一份甲，又补回一份甲。**最终名单没有变化，这两条更新各自改了什么？**
 
@@ -114,59 +149,31 @@ P → 甲      P → 乙
 
 ## 3. 修正怎样算出来 {#correction}
 
-### 3.1 先确定哪些历史属于这个时间
+### 3.1 先算甲的两轮
 
-本例按两个坐标分别比较时间：
+删除 `P→甲` 后，JOIN 在 `(1,0)` 撤回一份甲。加上版本 0 留下的两条记录，甲在 distinct 输入端一共有三条更新。到了第 0 轮，可以用其中哪几条？
 
-```text
-(a,b) ≤ (c,d)，要求 a≤c 且 b≤d。
-```
+| 甲的输入更新 | 算 `(1,0)` 时计入 | 算 `(1,1)` 时计入 |
+|---|---:|---:|
+| `(0,0) +1`，P 直接持有甲 | +1 | +1 |
+| `(0,1) +1`，经乙找到甲 | — | +1 |
+| `(1,0) −1`，P 卖掉直接持股 | −1 | −1 |
+| **累计支持数** | **0** | **1** |
 
-计算时间 t 的结果时，算子只累计时间 `s≤t` 的历史。
+**第 0 轮。** 直达甲的那份支持已经撤回。经乙找到甲要多走一步，它得等到第 1 轮才能计入。现在甲应该有 0 份，distinct 先前却发出过 1 份。要把 1 份改成 0 份，这一轮就要发 `0 − 1 = −1`。
 
-因此，`(0,1)` 不能计入 `(1,0)`。虽然输入版本 0 较早，但第 1 轮不属于第 0 轮。两个时间不可比。
+**第 1 轮。** 经乙找到甲的那份支持现在可以计入，甲应该有 1 份。输出历史里已有版本 0 的 `+1` 和刚才第 0 轮的 `−1`，累计为 0 份。要补到 1 份，这一轮就要发 `1 − 0 = +1`。
 
-**物理上已经收到，不代表计算这个逻辑时间时可以计入。** 输入历史和输出历史都要遵守这个条件。
+### 3.2 从两次减法得到 distinct 的修正规则 {#distinct-formula}
 
-### 3.2 用目标输出减去已有输出
+刚才的两道算式，左边都是甲在这一轮**应该有几份**，右边都是之前发出的更新在这一轮**累计有几份**。把甲换成任意公司 `x`，把轮次连同输入版本记为逻辑时间 `t`，同一道减法就能写成公式。
 
-固定记录甲，再固定一个时间 t。distinct 先累计符合条件的输入。累计权重非零时，目标输出是 1。累计权重为零时，目标输出是 0。[distinct 实现](https://github.com/TimelyDataflow/differential-dataflow/blob/e6c5a4d92d0bc15bc1b4b9f801618962cd4742a7/differential-dataflow/src/collection.rs#L850)
+<div class="ic-formula"><p><strong>本次修正 = 去重后应有的份数 − 修正前已发出的累计份数</strong></p>
+<p><var>c</var>(<var>x</var>, <var>t</var>) = 1[<var>N</var>(<var>x</var>, <var>t</var>) &gt; 0] − <var>S</var>(<var>x</var>, <var>t</var>)</p></div>
 
-接着，distinct 累计符合条件的输出历史。这个累计值就是已有输出。最后，算子计算两者的差额：
+`N` 是上表最后一行的累计支持数。在这个持股例子里，有支持就保留 1 份，没有就保留 0 份，这就是方括号的含义。`S` 从**输出**历史里算，只取本次修正发出前已经发送的更新。两边按同一个条件筛选更新。只有版本和轮次分别不超过 `t` 的两个坐标，才把这条更新计入。因此 `(0,1) +1` 虽然早已收到，却只能计入表中右边那一列。[distinct 实现](https://github.com/TimelyDataflow/differential-dataflow/blob/e6c5a4d92d0bc15bc1b4b9f801618962cd4742a7/differential-dataflow/src/collection.rs#L850)
 
-<div class="ic-formula"><p><strong>本次修正 = 目标输出 − 已有输出。</strong><br>两边都针对同一条记录、同一个逻辑时间。</p></div>
-
-差额为零时，算子不发送数据更新。差额非零时，算子发送修正。它还会把修正加入输出历史。
-
-现在删除 `P→甲`。JOIN 在 `(1,0)` 撤回一份甲。把这次撤回加到版本 0 的两条更新里，就得到了甲在 distinct 的输入历史。
-
-```text
-甲 @(0,0) +1
-甲 @(0,1) +1
-甲 @(1,0) -1
-```
-
-计算 `(1,0)` 时，第二条不能计入。输入累计权重是 `1−1=0`。目标输出是 0，已有输出却是 1。distinct 因此发送 `甲 @(1,0) -1`。
-
-再计算 `(1,1)`。三条输入都能计入。输入累计权重是 `1+1−1=1`，目标输出是 1。
-
-此时，输出历史已经包含刚才的撤回：
-
-```text
-甲 @(0,0) +1
-甲 @(1,0) -1
-```
-
-它们在 `(1,1)` 累计为 0。目标输出是 1，已有输出是 0。distinct 因此发送 `甲 @(1,1) +1`。
-
-| 计算时间 | 这一轮能用的路径 | 目标输出 | 修正前的已有输出 | 本次修正 |
-|---|---|---:|---:|---:|
-| `(1,0)` | 直达边已删除 | 0 | 1 | −1 |
-| `(1,1)` | 经乙仍可到达甲 | 1 | 0 | +1 |
-
-把版本 0 和版本 1 的第 1 轮放在一起看，甲的支持数从 2 降到了 1。两个版本都应该保留甲。但在版本 1，第 0 轮的撤回也计入第 1 轮。distinct 要再发一条 `+1`，下游在 `(1,1)` 累计才能得到一份甲。
-
-可以在下面的演示中来回切换第 3、4 步。两步使用同一份输入历史。留意 `(0,1) +1` 何时开始计入，再看输出历史里多了哪一条撤回。
+在演示里从第 3 步切到第 4 步，留意输出历史里多出的那条 `−1`。正是它让第二道减法右边的数变成了 0。
 
 {% include recursive-correction-demo.html %}
 
@@ -233,7 +240,7 @@ crate::consolidation::consolidate(change);
 | `(1,1)` | 1 | 1 | 1 | 0 |
 | `(1,2)` | 2 | 1 | 1 | 0 |
 
-乙一直保留一份输出。因此，版本 1 的 distinct 没有发送乙的变化。
+可以用刚才的公式验算最后一行。乙有两份支持，去重后应保留 1 份。它在输出历史里已经有 1 份，所以本次修正是 `1 − 1 = 0`。JOIN 给乙发了 `+1`，distinct 在这里无需再发更新。
 
 这里的支持数 2 表示两份直接 JOIN 输入。一份来自 `P→乙`，另一份来自 `甲→乙`。它不表示两条互相独立的起点路径。甲本身也可以经由乙到达。
 
@@ -288,6 +295,23 @@ trace 因此不能仅凭一个版本完成就清空历史。它可以在读取�
 再嵌套一层循环，可以增加一个内层轮次坐标。对应的时间形如 `(输入版本, 外层轮次, 内层轮次)`。算子仍按偏序选择历史，再计算目标输出与已有输出的差额。
 
 增加的时间坐标保留了更多计算阶段的区别。每一条修正都带着自己的逻辑时间，参与后续计算。
+
+## 6. 从两次删边读回 DBSP 的公式 {#dbsp-formula}
+
+最后把日志放在一旁，只看每个版本完成后的公司名单。把在名单里的公司记作 1 份，逐家公司用新名单的份数减去旧名单的份数。
+
+| 持股表的变化 | 旧名单 → 新名单 | 甲的净变化 | 乙的净变化 |
+|---|---|---:|---:|
+| 版本 1 删去 `P→甲` | {甲，乙} → {甲，乙} | 1 − 1 = 0 | 1 − 1 = 0 |
+| 版本 2 再删去 `P→乙` | {甲，乙} → ∅ | 0 − 1 = −1 | 0 − 1 = −1 |
+
+把版本 `v` 的持股表记作 `E[v]`。查询 `Q` 从 P 出发，返回沿持股关系可达的全部公司。表中每一行做的减法都是 **ΔV[v] = Q(E[v]) − Q(E[v−1])**，其中 `ΔV[v]` 就是该版本名单的净变化。
+
+如果手里只有逐版的持股变更，怎样得到表中最后两列？先把增删累加起来，还原各版持股表（ℐ）。对每版持股表求出可达公司名单（↑Q）。最后对相邻版本的名单做差（𝒟）。把这三个动作从右往左写，就得到教程第 4 课的公式。
+
+<div class="ic-formula"><p><strong>(↑Q)<sup>Δ</sup> = 𝒟 ∘ ↑Q ∘ ℐ</strong></p></div>
+
+左边是接收持股变更、输出名单变更的查询。右边给出了核对答案的办法。回看第一次删边，循环在两个轮次为甲发出 `−1` 和 `+1`，合到版本 1 恰好是表里的 0。第二次删边时，甲和乙各有一条撤回留在最终结果里，也恰好是表里的两个 `−1`。[教程第 4 课]({{ '/dbsp-ivm/0004-qdelta-chain-rule.html' | relative_url }}) · [DBSP 论文，定义 3.1](https://www.vldb.org/pvldb/vol16/p1601-budiu.pdf#page=4)
 
 ## 代码与延伸阅读
 
