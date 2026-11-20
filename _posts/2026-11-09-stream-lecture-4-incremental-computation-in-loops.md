@@ -21,6 +21,8 @@ tags: [differential-dataflow, 增量计算, 递归, distinct]
 .ic-graph-panel { padding: 10px; border: 1px solid #e8e0d4; border-radius: 8px; background: #fff; }
 .ic-graph-panel p { margin: 0; text-align: center; font-size: .9375rem; font-weight: 600; }
 .post-content .ic-graph-panel svg { min-width: 0; max-width: 280px; margin: 0 auto; }
+.post-content .ic-plan svg { min-width: 0; max-width: 540px; margin: 0 auto; }
+.ic-plan-heading { margin: 0 0 12px; text-align: center; font-size: 1rem; font-weight: 600; }
 .post-content .ic-formula { padding: 16px 20px; border-left: 4px solid #0f766e; background: #f6f1e7; margin: 24px 0; }
 .post-content .ic-formula p { margin: 0; }
 @media (max-width: 540px) {
@@ -43,9 +45,7 @@ tags: [differential-dataflow, 增量计算, 递归, distinct]
 
 ### 1.1 卖掉直接持股以后，甲还在名单里吗？
 
-P 直接持有甲、乙两家公司的股份。甲和乙也互相持股。我们要列出从 P 出发，沿持股关系能找到的所有公司。每家公司只列一次。起初名单上有甲和乙。
-
-现在 P 卖掉了直接持有的全部甲公司股份。请从第二张图里的 P 出发，顺着箭头走。你会从名单里划掉谁？
+**P 直接或间接持有哪些公司的股份？** 查询要求每家公司只列一次。持股表 `holds(holder, owned)` 每行是一条边。例如 `(乙, 甲)` 表示乙持有甲的股份，图上画成乙 → 甲。先看版本 0。P 可以直接到甲，也可以经乙到甲，名单上该写几个甲？
 
 <figure class="ic-figure" id="shareholding-graph">
 <div class="ic-graph-pair">
@@ -80,54 +80,93 @@ P 直接持有甲、乙两家公司的股份。甲和乙也互相持股。我们
 <figcaption>箭头从股东指向被持股的公司。虚线是这次卖出的直接持股。</figcaption>
 </figure>
 
-顺着剩下的边走，P 仍持有乙，乙仍持有甲。名单一行也不用改。可我在循环里的去重算子 `distinct` 后面记了一份日志，看到它先撤回一份甲，又补回一份甲。**最终名单没有变化，这两条更新各自改了什么？**
+用递归 SQL 写出这份名单，只需要给出起点，再定义怎样沿边走一步。
+
+```sql
+WITH RECURSIVE reach(name) AS (
+    SELECT 'P'
+    UNION
+    SELECT h.owned
+    FROM reach AS r
+    JOIN holds AS h ON h.holder = r.name
+)
+SELECT name FROM reach WHERE name <> 'P';
+```
+
+`reach` 从 P 开始。`JOIN` 在持股表里找到股东为 P 的行，读出甲和乙。`UNION` 把找到的名字并入 `reach`，每个名字只留一份。下一轮从甲找到乙，从乙又找到甲。两个名字都已在里面，查询结束。最后一行去掉起点 P，返回甲和乙。
+
+在实验的执行图里，`UNION` 对应两个节点。第一个把沿边找到的名字和起点 P 放在一起。第二个叫 **`distinct`（去重）**，同一个名字无论出现几次，都只保留一份。沿箭头看，第二份甲在哪里消失了？
+
+<figure class="ic-figure ic-plan" id="execution-plan">
+<p class="ic-plan-heading">卖出前 · 第 1 轮各节点的累计结果</p>
+<svg viewBox="0 0 440 408" role="img" aria-labelledby="ic-flow-title ic-flow-desc">
+  <title id="ic-flow-title">持股查询执行图</title>
+  <desc id="ic-flow-desc">版本 0 第 1 轮，循环入口有 P、甲、乙。JOIN 用四条持股边找到两份甲、两份乙。合并起点后多了一份 P。distinct 去重后只剩 P、甲、乙各一份。反馈边回到下一轮入口。离开循环并去掉 P，版本 0 的名单是甲、乙。</desc>
+  <defs><marker id="ic-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#57534e"/></marker></defs>
+  <g fill="none" stroke="#57534e" stroke-width="2" marker-end="url(#ic-arrow)">
+    <path d="M268 62 V90"/><path d="M268 152 V180"/><path d="M268 240 V268"/><path d="M268 328 V348"/>
+    <path d="M132 121 H153"/><path d="M132 210 H153"/>
+    <path d="M383 298 H433 V36 H383" stroke-dasharray="5 4"/>
+  </g>
+  <g fill="#fff" stroke="#d6d3d1" stroke-width="1.5">
+    <rect x="154" y="8" width="228" height="54" rx="8"/>
+    <rect x="154" y="91" width="228" height="61" rx="8"/>
+    <rect x="154" y="181" width="228" height="59" rx="8"/>
+    <rect x="154" y="349" width="228" height="56" rx="8"/>
+    <rect x="2" y="82" width="130" height="78" rx="8" fill="#f6f1e7"/>
+    <rect x="2" y="185" width="130" height="50" rx="8" fill="#f6f1e7"/>
+    <rect x="154" y="269" width="228" height="59" rx="8" fill="#ccfbf1" stroke="#0f766e"/>
+  </g>
+  <g fill="#1c1917" font-family="inherit" text-anchor="middle" font-size="18">
+    <g font-weight="600">
+      <text x="268" y="30">循环入口</text>
+      <text x="268" y="116">JOIN · 沿边走一步</text>
+      <text x="268" y="205">合并起点</text>
+      <text x="268" y="293">distinct · 去重</text>
+      <text x="268" y="372">离开循环，去掉 P</text>
+    </g>
+    <text x="268" y="53">P，甲，乙</text>
+    <text x="268" y="141">甲 × 2，乙 × 2</text>
+    <text x="268" y="229">P，甲 × 2，乙 × 2</text>
+    <text x="268" y="317">P，甲，乙</text>
+    <text x="268" y="395">甲，乙</text>
+    <g font-size="17">
+      <text x="67" y="105" font-weight="600">持股表</text>
+      <text x="67" y="129">P→甲　P→乙</text>
+      <text x="67" y="151">甲→乙　乙→甲</text>
+      <text x="67" y="206" font-weight="600">起点</text><text x="67" y="227">P</text>
+      <text transform="translate(414 168) rotate(-90)">反馈 · 轮次 +1</text>
+    </g>
+  </g>
+</svg>
+<figcaption>第 0 轮只从 P 出发。到第 1 轮，JOIN 累计找到两份甲，一份来自 P，一份来自乙。distinct 的累计结果始终只有一份甲，所以这一轮没有发出新的甲。</figcaption>
+</figure>
+
+再看版本 1。删掉 `P→甲`，P 仍能经乙到甲，最终名单一行也不用改。可实验日志显示，`distinct` 先撤回一份甲，又补回一份甲。**这两条更新各自改了哪一轮的答案？**
 
 ### 1.2 在哪里看到了这两条更新
 
-实验给初始持股表编号为版本 0，给删去 `P→甲` 后的表编号为版本 1。初次计算时，只有 P 在循环入口。JOIN 沿持股关系走一步就找到甲和乙。去重算子 distinct 各保留一份。反馈边把结果送回入口，下一轮便可沿甲、乙的持股关系继续查找。
+先看循环里 `distinct` 输出端的答案。时间戳写成 `(输入版本, 轮次)`。版本 0 是卖出前，版本 1 是卖出后。第 0 轮从 P 沿边走一步，第 1 轮再走一步。表中只列公司，`weight` 是该公司在这个时间点的累计权重。去重后，在名单里就是 1，不在就是 0。
 
-<figure class="ic-figure">
-<div class="ic-scroll">
-<svg viewBox="0 0 700 310" role="img" aria-labelledby="ic-flow-title ic-flow-desc">
-  <title id="ic-flow-title">可达性计算的反馈循环</title>
-  <desc id="ic-flow-desc">循环入口经过 JOIN 边表、合并起点 P 和 distinct。distinct 的输出经反馈把轮次加一，也可以离开循环，去掉轮次。</desc>
-  <defs><marker id="ic-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#57534e"/></marker></defs>
-  <g fill="none" stroke="#57534e" stroke-width="2" marker-end="url(#ic-arrow)">
-    <path d="M145 145 H205"/><path d="M305 145 H365"/><path d="M490 145 H545"/>
-    <path d="M255 69 V120"/><path d="M427 69 V120"/>
-    <path d="M575 170 V225 H82 V170"/><path d="M635 170 V255"/>
-  </g>
-  <g fill="#fff" stroke="#d6d3d1" stroke-width="1.5">
-    <rect x="20" y="120" width="125" height="50" rx="8"/>
-    <rect x="205" y="120" width="100" height="50" rx="8"/>
-    <rect x="365" y="120" width="125" height="50" rx="8"/>
-    <rect x="205" y="25" width="100" height="44" rx="8"/>
-    <rect x="365" y="25" width="125" height="44" rx="8"/>
-    <rect x="535" y="255" width="155" height="44" rx="8"/>
-  </g>
-  <rect x="545" y="120" width="120" height="50" rx="8" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/>
-  <g fill="#1c1917" font-size="17" text-anchor="middle" font-family="inherit">
-    <text x="82" y="151">循环入口</text><text x="255" y="151">JOIN</text>
-    <text x="427" y="151">合并起点 P</text><text x="605" y="151">distinct</text>
-    <text x="255" y="53">边表</text><text x="427" y="53">起点 P</text>
-    <text x="325" y="212">反馈：轮次 +1</text>
-    <text x="612" y="283" font-size="15">外层输出：去掉轮次</text>
-  </g>
-</svg>
-</div>
-<figcaption>下文主要观察 distinct 的输入和输出。数据经过反馈后，轮次才加 1。</figcaption>
-</figure>
+| 时间戳 | 当前答案（公司名单） | 甲的 weight | 乙的 weight |
+|---|---|---:|---:|
+| `(0,0)` | {甲，乙} | 1 | 1 |
+| `(0,1)` | {甲，乙} | 1 | 1 |
+| `(1,0)` | {乙} | 0 | 1 |
+| `(1,1)` | {甲，乙} | 1 | 1 |
 
-时间戳写成 `(输入版本, 轮次)`。更新写成 `记录 @时间 权重变化`。
+现在只读甲这一列。每个版本开始查找前，甲的权重都是 0。卖出前，甲的权重依次是 `0 → 1 → 1`，所以第 0 轮增加 1 份，第 1 轮增加 0 份。卖出后，权重是 `0 → 0 → 1`，两轮分别增加 0 份和 1 份。
 
-在 distinct 的输出端，刚才看到的两条日志可以写成下面这样。
+**固定轮次，用卖出后的新增份数减去卖出前的新增份数。** 得到的就是日志里这一轮要发出的权重变化 `diff`。
 
-```text
-甲 @(1,0) -1    版本 1，第 0 轮撤回一份甲
-甲 @(1,1) +1    版本 1，第 1 轮补回一份甲
-```
+| 输出时间戳 | 公司 | 发出的 diff（卖出后 − 卖出前） |
+|---|---|---:|
+| `(1,0)` | 甲 | 0 − 1 = **−1** |
+| `(1,1)` | 甲 | 1 − 0 = **+1** |
 
-同一次删除，两条更新的版本号相同，轮次相差 1。要弄清这个差别，先看删除之前，甲在哪两轮出现过。
+甲原来在第 0 轮就能找到，现在要到第 1 轮才能找到。日志记在 [执行图](#execution-plan) 的 `distinct` 出口。此时更新还保留当前轮次，沿反馈边回到入口时，轮次才加 1。
+
+下文把第一条更新简写为 `甲 @(1,0) −1`。我们刚才用两版答案推出了这条更新。distinct 在运行时怎样利用已经保存的历史算出同一个数？
 
 ## 2. distinct 保留哪些历史 {#history}
 
